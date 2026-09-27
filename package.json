@@ -1,0 +1,31 @@
+{
+  "name": "whatsapp-multi-session-app",
+  "version": "1.0.0",
+  "description": "Puppeteer-based multi-session WhatsApp automation system",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "nodemon server.js"
+  },
+  "keywords": [
+    "whatsapp",
+    "whatsapp-web.js",
+    "puppeteer",
+    "automation",
+    "multi-session",
+    "express",
+    "socket.io"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "express": "^4.19.2",
+    "multer": "^1.4.5-lts.1",
+    "pino": "^9.0.0",
+    "socket.io": "^4.7.5",
+    "whatsapp-web.js": "^1.26.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.0"
+  }
+}
