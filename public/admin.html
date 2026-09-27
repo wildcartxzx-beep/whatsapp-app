@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>WhatsApp Multi-Session Admin Panel</title>
+  <script src="/socket.io/socket.io.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+    body { background-color: #f0f2f5; height: 100vh; display: flex; flex-direction: column; }
+    header { background-color: #00a884; color: white; padding: 12px 16px; font-size: 18px; font-weight: 600; display: flex; justify-content: space-between; align-items: center; }
+    
+    .main-container { display: flex; flex: 1; overflow: hidden; position: relative; }
+    
+    /* অ্যাকাউন্ট সিলেকশন সাইডবার */
+    .account-sidebar { width: 100%; background: #ffffff; border-right: 1px solid #d1d7db; display: flex; flex-direction: column; }
+    .section-title { padding: 12px 16px; background: #f0f2f5; font-size: 14px; font-weight: bold; color: #54656f; border-bottom: 1px solid #d1d7db; }
+    .account-list, .chat-list { flex: 1; overflow-y: auto; }
+    .account-item, .chat-item { padding: 14px 16px; border-bottom: 1px solid #f0f2f5; cursor: pointer; display: flex; justify-content: space-between; align-items: center; }
+    .account-item:hover, .chat-item:hover { background: #f5f6f6; }
+    .account-item.active { background: #e1f3fb; }
+    
+    /* চ্যাট ও উইন্ডো এরিয়া */
+    .workspace { display: none; width: 100%; background: #efeae2; flex-direction: column; position: absolute; top: 0; left: 0; height: 100%; z-index: 10; }
+    .workspace.active { display: flex; }
+    
+    .chat-header { background: #f0f2f5; padding: 10px 16px; display: flex; align-items: center; gap: 12px; border-bottom: 1px solid #d1d7db; }
+    .back-btn { background: none; border: none; font-size: 20px; cursor: pointer; color: #54656f; display: block; }
+    
+    .messages-area { flex: 1; padding: 16px; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; }
+    .msg { max-width: 75%; padding: 8px 12px; border-radius: 8px; font-size: 14px; word-break: break-word; }
+    .msg.incoming { background: white; align-self: flex-start; }
+    .msg.outgoing { background: #d9fdd3; align-self: flex-end; }
+    
+    .input-area { padding: 10px; background: #f0f2f5; display: flex; gap: 8px; align-items: center; }
+    .input-area input { flex: 1; padding: 10px 14px; border-radius: 20px; border: none; outline: none; font-size: 15px; }
+    .input-area button { background: #00a884; color: white; border: none; width: 40px; height: 40px; border-radius: 50%; cursor: pointer; font-size: 16px; }
+
+    @media (min-width: 768px) {
+      .account-sidebar { width: 320px; }
+      .workspace { position: static; display: flex; flex: 1; }
+      .back-btn { display: none; }
+    }
+  </style>
+</head>
+<body>
+
+  <header>
+    <span>Multi-Session WhatsApp Admin</span>
+    <span id="system-status" style="font-size: 12px; background: #5cb85c; padding: 3px 8px; border-radius: 4px;">Online</span>
+  </header>
+
+  <div class="main-container">
+    <!-- বাঁ侧ে কানেক্টেড অ্যাকাউন্ট ও চ্যাট লিস্ট -->
+    <div class="account-sidebar">
+      <div class="section-title">Connected Accounts</div>
+      <div id="account-list" class="account-list">
+        <div style="padding: 15px; color: #667781; text-align: center;">Loading accounts...</div>
+      </div>
+      
+      <div class="section-title">Chats for Selected Account</div>
+      <div id="chat-list" class="chat-list">
+        <div style="padding: 15px; color: #667781; text-align: center;">Select an account first</div>
+      </div>
+    </div>
+
+    <!-- ডান侧ে চ্যাট এবং মেসেজিং উইন্ডো -->
+    <div class="workspace" id="workspace">
+      <div class="chat-header">
+        <button class="back-btn" onclick="closeWorkspace()">⬅</button>
+        <h3 id="current-chat-title">Select a chat</h3>
+      </div>
+      <div class="messages-area" id="messages-area"></div>
+      <div class="input-area">
+        <input type="text" id="message-input" placeholder="Type a message...">
+        <button onclick="sendTextMessage()">➤</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const socket = io();
+    let selectedPhone = null;
+    let selectedJid = null;
+
+    // সার্ভার থেকে কানেক্টেড অ্যাকাউন্টগুলোর লিস্ট লোড করা
+    async function loadAccounts() {
+      try {
+        const res = await fetch('/api/admin/numbers');
+        const data = await res.json();
+        const listEl = document.getElementById('account-list');
+        listEl.innerHTML = '';
+
+        if (!data.numbers || data.numbers.length === 0) {
+          listEl.innerHTML = '<div style="padding: 15px; color: #667781; text-align: center;">No active accounts found</div>';
+          return;
+        }
+
+        data.numbers.forEach(phone => {
+          const div = document.createElement('div');
+          div.className = `account-item ${selectedPhone === phone ? 'active' : ''}`;
+          div.innerHTML = `<div><strong>+${phone}</strong><p style="font-size: 12px; color: #667781;">Active Session</p></div>`;
+          div.onclick = () => selectAccount(phone);
+          listEl.appendChild(div);
+        });
+      } catch (err) {
+        console.error('Error loading accounts:', err);
+      }
+    }
+
+    // একটি নির্দিষ্ট অ্যাকাউন্ট সিলেক্ট করলে তার চ্যাট লিস্ট আনা
+    async function selectAccount(phone) {
+      selectedPhone = phone;
+      loadAccounts(); // UI আপডেট করার জন্য
+      
+      const chatListEl = document.getElementById('chat-list');
+      chatListEl.innerHTML = '<div style="padding: 15px; color: #667781; text-align: center;">Loading chats...</div>';
+
+      try {
+        const res = await fetch(`/api/admin/chats/${phone}`);
+        const data = await res.json();
+        chatListEl.innerHTML = '';
+
+        if (!data.chats || data.chats.length === 0) {
+          chatListEl.innerHTML = '<div style="padding: 15px; color: #667781; text-align: center;">No chats available</div>';
+          return;
+        }
+
+        data.chats.forEach(chat => {
+          const div = document.createElement('div');
+          div.className = 'chat-item';
+          div.innerHTML = `<div><h4>${chat.name}</h4><p style="font-size: 12px; color: #667781;">${chat.jid}</p></div>`;
+          div.onclick = () => openChatWindow(chat.jid, chat.name);
+          chatListEl.appendChild(div);
+        });
+      } catch (err) {
+        chatListEl.innerHTML = '<div style="padding: 15px; color: #d9534f; text-align: center;">Failed to load chats</div>';
+      }
+    }
+
+    // চ্যাট ওপেন করে মেসেজ হিস্ট্রি আনা
+    async function openChatWindow(jid, name) {
+      selectedJid = jid;
+      document.getElementById('current-chat-title').innerText = name;
+      document.getElementById('workspace').classList.add('active');
+
+      const msgArea = document.getElementById('messages-area');
+      msgArea.innerHTML = '<div style="text-align: center; color: #667781;">Loading messages...</div>';
+
+      try {
+        const res = await fetch(`/api/admin/messages/${selectedPhone}/${jid}`);
+        const data = await res.json();
+        msgArea.innerHTML = '';
+
+        if (data.messages) {
+          data.messages.forEach(m => appendMsgToUI(m.text, m.fromMe));
+        }
+      } catch (err) {
+        msgArea.innerHTML = '<div style="text-align: center; color: #d9534f;">Failed to load messages</div>';
+      }
+    }
+
+    function closeWorkspace() {
+      document.getElementById('workspace').classList.remove('active');
+    }
+
+    function appendMsgToUI(text, fromMe) {
+      const msgArea = document.getElementById('messages-area');
+      const div = document.createElement('div');
+      div.className = `msg ${fromMe ? 'outgoing' : 'incoming'}`;
+      div.innerText = text;
+      msgArea.appendChild(div);
+      msgArea.scrollTop = msgArea.scrollHeight;
+    }
+
+    // মেসেজ পাঠানো
+    async function sendTextMessage() {
+      const input = document.getElementById('message-input');
+      const text = input.value.trim();
+      if (!text || !selectedPhone || !selectedJid) return;
+
+      try {
+        const res = await fetch('/api/admin/send-message', {
+          method: 'POST',
+          headers: { 'Content-Type': 'Application/json' },
+          body: JSON.stringify({ senderPhone: selectedPhone, recipientJid: selectedJid, text })
+        });
+        const data = await res.json();
+        if (data.success) {
+          appendMsgToUI(text, true);
+          input.value = '';
+        } else {
+          alert('Failed to send message');
+        }
+      } catch (err) {
+        alert('Server communication error');
+      }
+    }
+
+    // রিয়েল-টাইম ইনকামিং মেসেজ হ্যান্ডেল করা (Socket.io)
+    socket.on('new-message', (data) => {
+      if (data.senderPhone === selectedPhone && data.fromJid === selectedJid) {
+        appendMsgToUI(data.text, data.fromMe);
+      }
+    });
+
+    // পেজ লোড হলে অ্যাকাউন্ট লিস্ট ফেচ করা
+    window.onload = () => {
+      loadAccounts();
+    };
+  </script>
+</body>
+</html>
