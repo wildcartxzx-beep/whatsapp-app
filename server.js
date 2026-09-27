@@ -40,7 +40,7 @@ async function initPuppeteerSession(phone) {
       dataPath: SESSIONS_DIR
     }),
     puppeteer: {
-      headless: true,
+      headless: false,
       args: [
         '--no-sandbox',
         '--disable-setuid-sandbox',
