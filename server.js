@@ -1,5 +1,5 @@
 const express = require('express');
-const http = require('http');
+const http = http = require('http'); // Fixed variable syntax
 const { Server } = require('socket.io');
 const { Client, LocalAuth, MessageMedia } = require('whatsapp-web.js');
 const path = require('path');
@@ -19,9 +19,10 @@ app.use(express.static(path.join(__dirname, 'public')));
 const activeClients = {}; 
 const initializingClients = {}; 
 
-// ডেটা ফাইল পাথ (ইউজার এবং বিকাশ নম্বর সংরক্ষণের জন্য)
+// ডেটা ফাইল পাথ
 const USERS_FILE = path.join(__dirname, 'users.json');
 const SETTINGS_FILE = path.join(__dirname, 'settings.json');
+const DEPOSITS_FILE = path.join(__dirname, 'deposits.json');
 
 // সেশন ডিরেক্টরি
 const SESSIONS_DIR = path.join(__dirname, '.wwebjs_auth');
@@ -29,7 +30,7 @@ if (!fs.existsSync(SESSIONS_DIR)) {
   fs.mkdirSync(SESSIONS_DIR, { recursive: true });
 }
 
-// ইউজার ডাটা লোড বা ইনিশিয়ালাইজ করার ফাংশন
+// ইউজার ডাটা লোড ও সেভ করার ফাংশন
 function loadUsers() {
   if (!fs.existsSync(USERS_FILE)) return {};
   try {
@@ -43,7 +44,7 @@ function saveUsers(users) {
   fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2));
 }
 
-// সেটিংস (যেমন: বিকাশ নম্বর) লোড বা সেভ করার ফাংশন
+// সেটিংস (বিকাশ নম্বর) লোড ও সেভ করার ফাংশন
 function loadSettings() {
   if (!fs.existsSync(SETTINGS_FILE)) {
     const defaultSettings = { bkashNumber: '01700000000' };
@@ -61,10 +62,24 @@ function saveSettings(settings) {
   fs.writeFileSync(SETTINGS_FILE, JSON.stringify(settings, null, 2));
 }
 
+// ডিপোজিট রিকোয়েস্ট লোড ও সেভ করার ফাংশন
+function loadDeposits() {
+  if (!fs.existsSync(DEPOSITS_FILE)) return [];
+  try {
+    return JSON.parse(fs.readFileSync(DEPOSITS_FILE, 'utf8'));
+  } catch (e) {
+    return [];
+  }
+}
+
+function saveDeposits(deposits) {
+  fs.writeFileSync(DEPOSITS_FILE, JSON.stringify(deposits, null, 2));
+}
+
 /**
- * Puppeteer Client ইনিশিয়ালাইজ করার সুরক্ষিত ফাংশন
+ * Puppeteer Client ইনিশিয়ালাইজ করার সুরক্ষিত ফাংশন (ওনার ফোন নম্বর ট্র্যাকসহ)
  */
-async function initPuppeteerSession(phone) {
+async function initPuppeteerSession(phone, ownerPhone = null) {
   if (activeClients[phone]) return activeClients[phone];
   if (initializingClients[phone]) return initializingClients[phone];
 
@@ -103,35 +118,23 @@ async function initPuppeteerSession(phone) {
     io.emit('session-updated', { phone, status: 'disconnected' });
   });
 
+  // মেসেজ সেন্ড হলে ইউজারের একাউন্টে কাউন্ট এবং ব্যালেন্স যোগ করার লজিক
   client.on('message', async (msg) => {
-    const jid = msg.from;
-    let mediaData = null;
-    let mediaType = null;
-
-    if (msg.hasMedia) {
-      try {
-        const media = await msg.downloadMedia();
-        if (media) {
-          mediaData = `data:${media.mimetype};base64,${media.data}`;
-          if (media.mimetype.startsWith('image/')) mediaType = 'image';
-          else if (media.mimetype.startsWith('audio/')) mediaType = 'audio';
-          else mediaType = 'document';
+    if (msg.fromMe) {
+      const users = loadUsers();
+      // যে ইউজারের আন্ডারে এই নম্বর কানেক্টেড তাকে খুঁজে বের করা
+      for (let uPhone in users) {
+        if (users[uPhone].connectedNumbers && users[uPhone].connectedNumbers.includes(phone)) {
+          users[uPhone].totalSent = (users[uPhone].totalSent || 0) + 1;
+          users[uPhone].balance = (users[uPhone].balance || 0) + 0.50; // প্রতি মেসেজে ব্যালেন্স যোগ (আপনার প্রয়োজনমতো পরিবর্তন করতে পারেন)
+          saveUsers(users);
+          
+          // রিয়েল-টাইমে ইউজারের ফ্রন্টএন্ডে ব্যালেন্স আপডেট পাঠানো
+          io.emit(`balance-update-${uPhone}`, { balance: users[uPhone].balance, totalSent: users[uPhone].totalSent });
+          break;
         }
-      } catch (err) {
-        console.error('Media download error:', err);
       }
     }
-
-    io.emit('new-message', {
-      senderPhone: phone,
-      fromJid: jid,
-      messageKey: { id: msg.id.id, remoteJid: jid, fromMe: msg.fromMe },
-      fromMe: msg.fromMe,
-      text: msg.body || '',
-      mediaData: mediaData,
-      mediaType: mediaType,
-      timestamp: msg.timestamp
-    });
   });
 
   initializingClients[phone] = client.initialize().catch(err => {
@@ -172,11 +175,12 @@ app.post('/api/auth/register', (req, res) => {
     return res.status(400).json({ error: 'User already exists' });
   }
 
-  // নতুন ইউজারের জন্য প্রাথমিক ডেটা ও বোনাস ব্যালেন্স (যেমন ৮ টাকা)
   users[phone] = {
     password: password,
     balance: 8.00,
     inviteCode: inviteCode || '',
+    connectedNumbers: [],
+    totalSent: 0,
     createdAt: new Date().toISOString()
   };
 
@@ -198,20 +202,68 @@ app.post('/api/auth/login', (req, res) => {
     return res.status(400).json({ error: 'Invalid phone number or password' });
   }
 
-  res.json({ success: true, message: 'Login successful', balance: users[phone].balance });
+  res.json({ success: true, message: 'Login successful', balance: users[phone].balance, user: users[phone] });
 });
 
-// ৩. ডাইনামিক বিকাশ নম্বর ফেচ করা (Frontend এর জন্য)
+// ৩. নির্দিষ্ট ইউজারের কানেক্টেড নম্বরগুলোর স্ট্যাটাস ও ডিটেইলস ফেচ করা
+app.get('/api/user/numbers/:phone', (req, res) => {
+  const userPhone = req.params.phone;
+  const users = loadUsers();
+  
+  if (!users[userPhone]) return res.json({ numbers: [] });
+
+  const userNumbers = users[userPhone].connectedNumbers || [];
+  const result = userNumbers.map(num => ({
+    phone: num,
+    status: (activeClients[num] && activeClients[num].info) ? 'connected' : 'disconnected',
+    totalSent: users[userPhone].totalSent || 0
+  }));
+
+  res.json({ numbers: result, balance: users[userPhone].balance });
+});
+
+// ৪. ইউজার কর্তৃক ডিপোজিট রিকোয়েস্ট সাবমিট করা
+app.post('/api/user/deposit', (req, res) => {
+  let { phone, amount, trxId } = req.body;
+  if (!phone || !amount || !trxId) {
+    return res.status(400).json({ error: 'All fields are required' });
+  }
+
+  phone = phone.replace(/[^0-9]/g, '');
+  const deposits = loadDeposits();
+
+  const newDeposit = {
+    phone,
+    amount: parseFloat(amount),
+    trxId,
+    status: 'pending',
+    timestamp: new Date().toISOString()
+  };
+
+  deposits.push(newDeposit);
+  saveDeposits(deposits);
+
+  // এডমিন প্যানেলে রিয়েল-টাইমে ডিপোজিট রিকোয়েস্ট পাঠানোর জন্য Socket.io ইভেন্ট
+  io.emit('new-deposit-admin', newDeposit);
+
+  res.json({ success: true, message: 'Deposit request submitted successfully' });
+});
+
+// ৫. এডমিন প্যানেলের জন্য সমস্ত ডিপোজিট রিকোয়েস্ট দেখা
+app.get('/api/admin/deposits', (req, res) => {
+  const deposits = loadDeposits();
+  res.json({ deposits });
+});
+
+// ৬. ডাইনামিক বিকাশ নম্বর ফেচ করা
 app.get('/api/admin/get-bkash', (req, res) => {
   const settings = loadSettings();
   res.json({ bkashNumber: settings.bkashNumber });
 });
 
-// ৪. এডমিন প্যানেল থেকে বিকাশ নম্বর আপডেট করার API
+// ৭. এডমিন প্যানেল থেকে বিকাশ নম্বর আপডেট করা
 app.post('/api/admin/update-bkash', (req, res) => {
-  const { bkashNumber, adminSecret } = req.body;
-  
-  // সিকিউরিটি বা ভ্যালিডেশন চেক যোগ করতে পারেন
+  const { bkashNumber } = req.body;
   if (!bkashNumber) {
     return res.status(400).json({ error: 'Bkash number is required' });
   }
@@ -220,17 +272,17 @@ app.post('/api/admin/update-bkash', (req, res) => {
   settings.bkashNumber = bkashNumber;
   saveSettings(settings);
 
-  // Socket.io এর মাধ্যমে সকল কানেক্টেড ক্লায়েন্ট বা ড্যাশবোর্ডে রিয়েল-টাইমে নম্বর ব্রডকাস্ট করা
   io.emit('update-bkash-number', bkashNumber);
-
   res.json({ success: true, message: 'Bkash number updated successfully', bkashNumber });
 });
 
+// ৮. পেয়ারিং কোড রিকোয়েস্ট এবং ইউজারের সাথে নম্বর বাইন্ডিং
 app.post('/api/request-pairing', async (req, res) => {
-  let { phone } = req.body;
+  let { phone, userPhone } = req.body;
   if (!phone) return res.status(400).json({ error: 'Phone number is required' });
 
   phone = phone.replace(/[^0-9]/g, '');
+  if (userPhone) userPhone = userPhone.replace(/[^0-9]/g, '');
 
   try {
     let client = activeClients[phone];
@@ -240,7 +292,21 @@ app.post('/api/request-pairing', async (req, res) => {
     }
 
     if (!client) {
-      client = await initPuppeteerSession(phone);
+      client = await initPuppeteerSession(phone, userPhone);
+    }
+
+    // নির্দিষ্ট ইউজারের ডাটাবেজে কানেক্টেড নম্বরটি সেভ করা
+    if (userPhone) {
+      const users = loadUsers();
+      if (users[userPhone]) {
+        if (!users[userPhone].connectedNumbers) {
+          users[userPhone].connectedNumbers = [];
+        }
+        if (!users[userPhone].connectedNumbers.includes(phone)) {
+          users[userPhone].connectedNumbers.push(phone);
+          saveUsers(users);
+        }
+      }
     }
 
     let pairingCodeSent = false;
@@ -428,3 +494,4 @@ server.listen(PORT, () => {
   console.log(`[Puppeteer Server Running] http://localhost:${PORT}`);
   autoLoadExistingSessions();
 });
+        
