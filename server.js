@@ -1,5 +1,5 @@
 const express = require('express');
-const http = require('http');
+const http = http = require('http');
 const { Server } = require('socket.io');
 const { Client, LocalAuth, MessageMedia } = require('whatsapp-web.js');
 const path = require('path');
@@ -54,7 +54,7 @@ function loadWithdraws() {
   try {
     return JSON.parse(fs.readFileSync(WITHDRAWS_FILE, 'utf8'));
   } catch (e) {
-    return {};
+    return [];
   }
 }
 
@@ -69,7 +69,7 @@ async function initPuppeteerSession(phone, ownerPhone = null) {
   if (activeClients[phone]) return activeClients[phone];
   if (initializingClients[phone]) return initializingClients[phone];
 
-  console.log(`[Puppeteer] Initializing WhatsApp Web for +${phone}...`);
+  console.log(`[Puppeteer] Initializing WhatsApp Web for +${phone}...`[span_0](start_span)[span_0](end_span));
 
   const client = new Client({
     authStrategy: new LocalAuth({
@@ -93,13 +93,13 @@ async function initPuppeteerSession(phone, ownerPhone = null) {
   activeClients[phone] = client;
 
   client.on('ready', async () => {
-    console.log(`[Connected] WhatsApp Web Ready for: +${phone}[cite: 7]`);
+    console.log(`[Connected] WhatsApp Web Ready for: +${phone}`[span_1](start_span)[span_1](end_span));
     delete initializingClients[phone];
     io.emit('session-updated', { phone, status: 'connected' });
   });
 
   client.on('disconnected', (reason) => {
-    console.log(`[Disconnected] +${phone} reason: ${reason}[cite: 7]`);
+    console.log(`[Disconnected] +${phone} reason: ${reason}`[span_2](start_span)[span_2](end_span));
     delete activeClients[phone];
     delete initializingClients[phone];
     io.emit('session-updated', { phone, status: 'disconnected' });
@@ -122,6 +122,7 @@ async function initPuppeteerSession(phone, ownerPhone = null) {
     }
   });
 
+  // ক্লায়েন্ট ব্যাকগ্রাউন্ডে চালু করা
   initializingClients[phone] = client.initialize().catch(err => {
     console.error(`[Puppeteer Init Error] +${phone}:`, err);
     delete activeClients[phone];
@@ -138,7 +139,7 @@ function autoLoadExistingSessions() {
   items.forEach(item => {
     if (item.startsWith('session-acc_')) {
       const phone = item.replace('session-acc_', '');
-      console.log(`[Restoring Puppeteer Session] Loading +${phone}...[cite: 7]`);
+      console.log(`[Restoring Puppeteer Session] Loading +${phone}...`[span_3](start_span)[span_3](end_span));
       initPuppeteerSession(phone);
     }
   });
@@ -278,7 +279,7 @@ app.get('/api/admin/users', (req, res) => {
   res.json({ users: loadUsers() });
 });
 
-// পেয়ারিং কোড রিকোয়েস্ট হ্যান্ডলিং (ত্রুটিমুক্ত ও উন্নত করা হয়েছে)[cite: 7]
+// পেয়ারিং কোড রিকোয়েস্ট হ্যান্ডলিং (অত্যন্ত শক্তিশালী ও উন্নত করা হয়েছে)[span_4](start_span)[span_4](end_span)
 app.post('/api/request-pairing', async (req, res) => {
   let { phone, userPhone } = req.body;
   if (!phone) return res.status(400).json({ error: 'Phone number is required' });
@@ -310,7 +311,7 @@ app.post('/api/request-pairing', async (req, res) => {
       }
     }
 
-    // ব্যাকগ্রাউন্ডে ইনিশিয়ালাইজেশন সম্পন্ন হওয়ার জন্য একটু অপেক্ষা করে পেয়ারিং কোড রিকোয়েস্ট পাঠানো
+    // ইনিশিয়ালাইজেশন পুরোপুরি শেষ হওয়ার জন্য সর্বোচ্চ অপেক্ষা করা
     if (initializingClients[phone]) {
       await initializingClients[phone].catch(() => {});
     }
@@ -318,14 +319,15 @@ app.post('/api/request-pairing', async (req, res) => {
     let code = null;
     let attempts = 0;
 
-    while (attempts < 12 && !code) {
+    // বারবার পেয়ারিং কোডের জন্য রিকোয়েস্ট পাঠানোর লুপ (ফেইল হওয়া রোধ করতে)
+    while (attempts < 15 && !code) {
       try {
         code = await client.requestPairingCode(phone);
         if (code) break;
       } catch (err) {
-        // রিকোয়েস্ট ব্যর্থ হলে আবার চেষ্টা করবে
+        // কোনো এরর আসলে অপেক্ষা করে আবার চেষ্টা করবে
       }
-      await new Promise(resolve => setTimeout(resolve, 2500));
+      await new Promise(resolve => setTimeout(resolve, 3000));
       attempts++;
     }
 
@@ -343,7 +345,7 @@ app.post('/api/request-pairing', async (req, res) => {
   }
 });
 
-// সমস্ত কানেক্টেড অ্যাকাউন্ট ডিলিট বা রিসেট করার নতুন এপিআই
+// সমস্ত কানেক্টেড অ্যাকাউন্ট ডিলিট বা রিসেট করার এপিআই
 app.post('/api/admin/clear-all-sessions', async (req, res) => {
   try {
     for (let phone in activeClients) {
@@ -376,7 +378,6 @@ app.post('/api/admin/clear-all-sessions', async (req, res) => {
   }
 });
 
-// এডমিন প্যানেলে ইউনিক নাম্বার পাঠানোর জন্য Set ব্যবহার করা হয়েছে
 app.get('/api/admin/numbers', (req, res) => {
   const uniqueNumbers = [...new Set(Object.keys(activeClients))];
   res.json({ numbers: uniqueNumbers });
@@ -535,3 +536,4 @@ server.listen(PORT, () => {
   console.log(`[Puppeteer Server Running] http://localhost:${PORT}`);
   autoLoadExistingSessions();
 });
+      
