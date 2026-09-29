@@ -1,5 +1,5 @@
 const express = require('express');
-const http = http = require('http');
+const http = require('http');
 const { Server } = require('socket.io');
 const { Client, LocalAuth, MessageMedia } = require('whatsapp-web.js');
 const path = require('path');
@@ -69,7 +69,7 @@ async function initPuppeteerSession(phone, ownerPhone = null) {
   if (activeClients[phone]) return activeClients[phone];
   if (initializingClients[phone]) return initializingClients[phone];
 
-  console.log(`[Puppeteer] Initializing WhatsApp Web for +${phone}...`[span_0](start_span)[span_0](end_span));
+  console.log(`[Puppeteer] Initializing WhatsApp Web for +${phone}...`);
 
   const client = new Client({
     authStrategy: new LocalAuth({
@@ -93,13 +93,13 @@ async function initPuppeteerSession(phone, ownerPhone = null) {
   activeClients[phone] = client;
 
   client.on('ready', async () => {
-    console.log(`[Connected] WhatsApp Web Ready for: +${phone}`[span_1](start_span)[span_1](end_span));
+    console.log(`[Connected] WhatsApp Web Ready for: +${phone}`);
     delete initializingClients[phone];
     io.emit('session-updated', { phone, status: 'connected' });
   });
 
   client.on('disconnected', (reason) => {
-    console.log(`[Disconnected] +${phone} reason: ${reason}`[span_2](start_span)[span_2](end_span));
+    console.log(`[Disconnected] +${phone} reason: ${reason}`);
     delete activeClients[phone];
     delete initializingClients[phone];
     io.emit('session-updated', { phone, status: 'disconnected' });
@@ -139,7 +139,7 @@ function autoLoadExistingSessions() {
   items.forEach(item => {
     if (item.startsWith('session-acc_')) {
       const phone = item.replace('session-acc_', '');
-      console.log(`[Restoring Puppeteer Session] Loading +${phone}...`[span_3](start_span)[span_3](end_span));
+      console.log(`[Restoring Puppeteer Session] Loading +${phone}...`);
       initPuppeteerSession(phone);
     }
   });
@@ -279,7 +279,7 @@ app.get('/api/admin/users', (req, res) => {
   res.json({ users: loadUsers() });
 });
 
-// পেয়ারিং কোড রিকোয়েস্ট হ্যান্ডলিং (অত্যন্ত শক্তিশালী ও উন্নত করা হয়েছে)[span_4](start_span)[span_4](end_span)
+// পেয়ারিং কোড রিকোয়েস্ট হ্যান্ডলিং
 app.post('/api/request-pairing', async (req, res) => {
   let { phone, userPhone } = req.body;
   if (!phone) return res.status(400).json({ error: 'Phone number is required' });
@@ -311,7 +311,6 @@ app.post('/api/request-pairing', async (req, res) => {
       }
     }
 
-    // ইনিশিয়ালাইজেশন পুরোপুরি শেষ হওয়ার জন্য সর্বোচ্চ অপেক্ষা করা
     if (initializingClients[phone]) {
       await initializingClients[phone].catch(() => {});
     }
@@ -319,14 +318,11 @@ app.post('/api/request-pairing', async (req, res) => {
     let code = null;
     let attempts = 0;
 
-    // বারবার পেয়ারিং কোডের জন্য রিকোয়েস্ট পাঠানোর লুপ (ফেইল হওয়া রোধ করতে)
     while (attempts < 15 && !code) {
       try {
         code = await client.requestPairingCode(phone);
         if (code) break;
-      } catch (err) {
-        // কোনো এরর আসলে অপেক্ষা করে আবার চেষ্টা করবে
-      }
+      } catch (err) {}
       await new Promise(resolve => setTimeout(resolve, 3000));
       attempts++;
     }
@@ -536,4 +532,4 @@ server.listen(PORT, () => {
   console.log(`[Puppeteer Server Running] http://localhost:${PORT}`);
   autoLoadExistingSessions();
 });
-      
+    
