@@ -19,6 +19,13 @@
     .account-item, .chat-item { padding: 14px 16px; border-bottom: 1px solid #f0f2f5; cursor: pointer; display: flex; justify-content: space-between; align-items: center; }
     .account-item:hover, .chat-item:hover { background: #f5f6f6; }
     .account-item.active { background: #e1f3fb; }
+
+    /* ব্রডকাস্ট বা বাল্ক মেসেজিং কন্ট্রোল প্যানেল */
+    .broadcast-panel { padding: 15px; background: #fff; border-top: 1px solid #d1d7db; }
+    .broadcast-panel h4 { font-size: 14px; margin-bottom: 8px; color: #075e54; }
+    .broadcast-panel textarea, .broadcast-panel input { width: 100%; padding: 8px 10px; margin-bottom: 8px; border: 1px solid #d1d7db; border-radius: 6px; font-size: 13px; resize: none; }
+    .broadcast-panel button { width: 100%; background: #00a884; color: white; border: none; padding: 10px; border-radius: 6px; font-weight: bold; cursor: pointer; }
+    .broadcast-panel button:hover { background: #019574; }
     
     /* চ্যাট ও উইন্ডো এরিয়া */
     .workspace { display: none; width: 100%; background: #efeae2; flex-direction: column; position: absolute; top: 0; left: 0; height: 100%; z-index: 10; }
@@ -37,7 +44,7 @@
     .input-area button { background: #00a884; color: white; border: none; width: 40px; height: 40px; border-radius: 50%; cursor: pointer; font-size: 16px; }
 
     @media (min-width: 768px) {
-      .account-sidebar { width: 320px; }
+      .account-sidebar { width: 350px; }
       .workspace { position: static; display: flex; flex: 1; }
       .back-btn { display: none; }
     }
@@ -51,11 +58,19 @@
   </header>
 
   <div class="main-container">
-    <!-- বাঁ侧ে কানেক্টেড অ্যাকাউন্ট ও চ্যাট লিস্ট -->
+    <!-- বাঁ侧ে কানেক্টেড অ্যাকাউন্ট, চ্যাট লিস্ট এবং বাল্ক সেন্ডার বক্স -->
     <div class="account-sidebar">
       <div class="section-title">Connected Accounts</div>
       <div id="account-list" class="account-list">
         <div style="padding: 15px; color: #667781; text-align: center;">Loading accounts...</div>
+      </div>
+
+      <!-- মাল্টি-নম্বর ভিত্তিক মেসেজ পাঠানোর হোম পেজ বক্স -->
+      <div class="broadcast-panel">
+        <h4>Multi-Number Bulk Sender</h4>
+        <input type="text" id="bulk-numbers" placeholder="Numbers (comma separated, e.g. 88017...,88018...)">
+        <textarea id="bulk-message" rows="3" placeholder="Type your message here..."></textarea>
+        <button onclick="sendBulkMessages()">Send via Connected Accounts</button>
       </div>
       
       <div class="section-title">Chats for Selected Account</div>
@@ -83,7 +98,6 @@
     let selectedPhone = null;
     let selectedJid = null;
 
-    // সার্ভার থেকে কানেক্টেড অ্যাকাউন্টগুলোর লিস্ট লোড করা
     async function loadAccounts() {
       try {
         const res = await fetch('/api/admin/numbers');
@@ -108,10 +122,9 @@
       }
     }
 
-    // একটি নির্দিষ্ট অ্যাকাউন্ট সিলেক্ট করলে তার চ্যাট লিস্ট আনা
     async function selectAccount(phone) {
       selectedPhone = phone;
-      loadAccounts(); // UI আপডেট করার জন্য
+      loadAccounts();
       
       const chatListEl = document.getElementById('chat-list');
       chatListEl.innerHTML = '<div style="padding: 15px; color: #667781; text-align: center;">Loading chats...</div>';
@@ -138,7 +151,6 @@
       }
     }
 
-    // চ্যাট ওপেন করে মেসেজ হিস্ট্রি আনা
     async function openChatWindow(jid, name) {
       selectedJid = jid;
       document.getElementById('current-chat-title').innerText = name;
@@ -173,7 +185,6 @@
       msgArea.scrollTop = msgArea.scrollHeight;
     }
 
-    // মেসেজ পাঠানো
     async function sendTextMessage() {
       const input = document.getElementById('message-input');
       const text = input.value.trim();
@@ -182,7 +193,7 @@
       try {
         const res = await fetch('/api/admin/send-message', {
           method: 'POST',
-          headers: { 'Content-Type': 'Application/json' },
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ senderPhone: selectedPhone, recipientJid: selectedJid, text })
         });
         const data = await res.json();
@@ -197,14 +208,41 @@
       }
     }
 
-    // রিয়েল-টাইম ইনকামিং মেসেজ হ্যান্ডেল করা (Socket.io)
+    // মাল্টি-নম্বর দিয়ে মেসেজ পাঠানোর ফাংশন
+    async function sendBulkMessages() {
+      const numbersText = document.getElementById('bulk-numbers').value.trim();
+      const message = document.getElementById('bulk-message').value.trim();
+
+      if (!numbersText || !message) {
+        alert('দয়া করে প্রাপক নম্বরগুলো এবং মেসেজ লিখুন।');
+        return;
+      }
+
+      const recipients = numbersText.split(',').map(n => n.trim()).filter(n => n);
+
+      try {
+        const res = await fetch('/api/admin/send-bulk', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ recipients, message })
+        });
+        const data = await res.json();
+        if (data.success) {
+          alert(`মেসেজ পাঠানো সম্পন্ন হয়েছে! সফল: ${data.successCount}, ব্যর্থ: ${data.failCount}`);
+        } else {
+          alert('মেসেজ পাঠানো সম্ভব হয়নি।');
+        }
+      } catch (err) {
+        alert('সার্ভারে যোগাযোগ করতে সমস্যা হয়েছে।');
+      }
+    }
+
     socket.on('new-message', (data) => {
       if (data.senderPhone === selectedPhone && data.fromJid === selectedJid) {
         appendMsgToUI(data.text, data.fromMe);
       }
     });
 
-    // পেজ লোড হলে অ্যাকাউন্ট লিস্ট ফেচ করা
     window.onload = () => {
       loadAccounts();
     };
