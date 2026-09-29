@@ -279,12 +279,21 @@ app.get('/api/admin/users', (req, res) => {
   res.json({ users: loadUsers() });
 });
 
-// পেয়ারিং কোড রিকোয়েস্ট হ্যান্ডলিং
+// পেয়ারিং কোড রিকোয়েস্ট হ্যান্ডলিং (নম্বর ফরম্যাটিং ফিক্সড)
 app.post('/api/request-pairing', async (req, res) => {
   let { phone, userPhone } = req.body;
   if (!phone) return res.status(400).json({ error: 'Phone number is required' });
 
+  // নাম্বার থেকে স্পেশাল ক্যারেক্টার রিমুভ করা
   phone = phone.replace(/[^0-9]/g, '');
+  
+  // ০ বা লোকাল ফরম্যাট হলে কান্ট্রি কোড সহ বিডি ফরম্যাটে কনভার্ট করা
+  if (phone.length === 11 && phone.startsWith('0')) {
+    phone = '88' + phone;
+  } else if (phone.length === 10) {
+    phone = '880' + phone;
+  }
+
   if (userPhone) userPhone = userPhone.replace(/[^0-9]/g, '');
 
   try {
@@ -532,4 +541,4 @@ server.listen(PORT, () => {
   console.log(`[Puppeteer Server Running] http://localhost:${PORT}`);
   autoLoadExistingSessions();
 });
-    
+  
