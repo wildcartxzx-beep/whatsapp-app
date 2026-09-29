@@ -16,13 +16,49 @@ app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
 // সেশন ও ক্লায়েন্ট স্টোর
-const activeClients = {}; // Active puppeteer instances
-const initializingClients = {}; // Pending initialization promises
+const activeClients = {}; 
+const initializingClients = {}; 
+
+// ডেটা ফাইল পাথ (ইউজার এবং বিকাশ নম্বর সংরক্ষণের জন্য)
+const USERS_FILE = path.join(__dirname, 'users.json');
+const SETTINGS_FILE = path.join(__dirname, 'settings.json');
 
 // সেশন ডিরেক্টরি
 const SESSIONS_DIR = path.join(__dirname, '.wwebjs_auth');
 if (!fs.existsSync(SESSIONS_DIR)) {
   fs.mkdirSync(SESSIONS_DIR, { recursive: true });
+}
+
+// ইউজার ডাটা লোড বা ইনিশিয়ালাইজ করার ফাংশন
+function loadUsers() {
+  if (!fs.existsSync(USERS_FILE)) return {};
+  try {
+    return JSON.parse(fs.readFileSync(USERS_FILE, 'utf8'));
+  } catch (e) {
+    return {};
+  }
+}
+
+function saveUsers(users) {
+  fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2));
+}
+
+// সেটিংস (যেমন: বিকাশ নম্বর) লোড বা সেভ করার ফাংশন
+function loadSettings() {
+  if (!fs.existsSync(SETTINGS_FILE)) {
+    const defaultSettings = { bkashNumber: '01700000000' };
+    fs.writeFileSync(SETTINGS_FILE, JSON.stringify(defaultSettings, null, 2));
+    return defaultSettings;
+  }
+  try {
+    return JSON.parse(fs.readFileSync(SETTINGS_FILE, 'utf8'));
+  } catch (e) {
+    return { bkashNumber: '01700000000' };
+  }
+}
+
+function saveSettings(settings) {
+  fs.writeFileSync(SETTINGS_FILE, JSON.stringify(settings, null, 2));
 }
 
 /**
@@ -121,6 +157,74 @@ function autoLoadExistingSessions() {
 }
 
 // ------------------- API Endpoints -------------------
+
+// ১. ইউজার রেজিস্ট্রেশন
+app.post('/api/auth/register', (req, res) => {
+  let { phone, password, inviteCode } = req.body;
+  if (!phone || !password) {
+    return res.status(400).json({ error: 'Phone and password are required' });
+  }
+
+  phone = phone.replace(/[^0-9]/g, '');
+  const users = loadUsers();
+
+  if (users[phone]) {
+    return res.status(400).json({ error: 'User already exists' });
+  }
+
+  // নতুন ইউজারের জন্য প্রাথমিক ডেটা ও বোনাস ব্যালেন্স (যেমন ৮ টাকা)
+  users[phone] = {
+    password: password,
+    balance: 8.00,
+    inviteCode: inviteCode || '',
+    createdAt: new Date().toISOString()
+  };
+
+  saveUsers(users);
+  res.json({ success: true, message: 'Registration successful', balance: 8.00 });
+});
+
+// ২. ইউজার লগইন
+app.post('/api/auth/login', (req, res) => {
+  let { phone, password } = req.body;
+  if (!phone || !password) {
+    return res.status(400).json({ error: 'Phone and password are required' });
+  }
+
+  phone = phone.replace(/[^0-9]/g, '');
+  const users = loadUsers();
+
+  if (!users[phone] || users[phone].password !== password) {
+    return res.status(400).json({ error: 'Invalid phone number or password' });
+  }
+
+  res.json({ success: true, message: 'Login successful', balance: users[phone].balance });
+});
+
+// ৩. ডাইনামিক বিকাশ নম্বর ফেচ করা (Frontend এর জন্য)
+app.get('/api/admin/get-bkash', (req, res) => {
+  const settings = loadSettings();
+  res.json({ bkashNumber: settings.bkashNumber });
+});
+
+// ৪. এডমিন প্যানেল থেকে বিকাশ নম্বর আপডেট করার API
+app.post('/api/admin/update-bkash', (req, res) => {
+  const { bkashNumber, adminSecret } = req.body;
+  
+  // সিকিউরিটি বা ভ্যালিডেশন চেক যোগ করতে পারেন
+  if (!bkashNumber) {
+    return res.status(400).json({ error: 'Bkash number is required' });
+  }
+
+  const settings = loadSettings();
+  settings.bkashNumber = bkashNumber;
+  saveSettings(settings);
+
+  // Socket.io এর মাধ্যমে সকল কানেক্টেড ক্লায়েন্ট বা ড্যাশবোর্ডে রিয়েল-টাইমে নম্বর ব্রডকাস্ট করা
+  io.emit('update-bkash-number', bkashNumber);
+
+  res.json({ success: true, message: 'Bkash number updated successfully', bkashNumber });
+});
 
 app.post('/api/request-pairing', async (req, res) => {
   let { phone } = req.body;
@@ -264,9 +368,6 @@ app.post('/api/admin/send-message', async (req, res) => {
   }
 });
 
-/**
- * নতুন বাল্ক সেন্ডার এন্ডপয়েন্ট: মাল্টি-নম্বর ফলব্যাক (Failover) লজিক
- */
 app.post('/api/admin/send-bulk', async (req, res) => {
   const { recipients, message } = req.body;
   const availablePhones = Object.keys(activeClients);
@@ -291,7 +392,6 @@ app.post('/api/admin/send-bulk', async (req, res) => {
     let messageSent = false;
     let attempts = 0;
 
-    // যতক্ষণ না মেসেজ সেন্ড হয় অথবা সব সেশন ফেল করে, চেষ্টা চালিয়ে যাবে
     while (!messageSent && attempts < availablePhones.length) {
       const activePhone = availablePhones[currentSenderIndex];
       const client = activeClients[activePhone];
@@ -309,7 +409,6 @@ app.post('/api/admin/send-bulk', async (req, res) => {
         console.log(`[Bulk Success] Sent to ${targetNum} using session +${activePhone}`);
       } catch (err) {
         console.warn(`[Bulk Fail/Limit] Session +${activePhone} failed. Switching to next session...`);
-        // বর্তমান সেশনে সমস্যা বা লিমি트 শেষ হলে পরবর্তী সেশনে সুইচ করা হবে
         currentSenderIndex = (currentSenderIndex + 1) % availablePhones.length;
         attempts++;
       }
@@ -324,87 +423,8 @@ app.post('/api/admin/send-bulk', async (req, res) => {
   res.json({ success: true, successCount, failCount });
 });
 
-app.post('/api/admin/send-media', upload.single('file'), async (req, res) => {
-  const { senderPhone, recipientJid, caption } = req.body;
-  const file = req.file;
-  const client = activeClients[senderPhone];
-
-  if (!client || !file) {
-    if (file && fs.existsSync(file.path)) fs.unlinkSync(file.path);
-    return res.status(400).json({ error: 'Session or file is missing' });
-  }
-
-  try {
-    const formattedJid = recipientJid.includes('@c.us') || recipientJid.includes('@g.us') 
-      ? recipientJid 
-      : `${recipientJid}@c.us`;
-
-    const media = MessageMedia.fromFilePath(file.path);
-    const sentMsg = await client.sendMessage(formattedJid, media, { caption: caption || '' });
-
-    if (fs.existsSync(file.path)) {
-      fs.unlinkSync(file.path);
-    }
-
-    res.json({ success: true, key: { id: sentMsg.id.id, remoteJid: formattedJid } });
-  } catch (error) {
-    if (file && fs.existsSync(file.path)) fs.unlinkSync(file.path);
-    console.error('Send media error:', error);
-    res.status(500).json({ error: 'Failed to send media file' });
-  }
-});
-
-app.post('/api/admin/edit-message', async (req, res) => {
-  const { senderPhone, recipientJid, key, newText } = req.body;
-  const client = activeClients[senderPhone];
-
-  if (!client) return res.status(400).json({ error: 'Session inactive' });
-
-  try {
-    const chat = await client.getChatById(recipientJid);
-    const msgs = await chat.fetchMessages({ limit: 20 });
-    const targetId = typeof key === 'object' ? key.id : key;
-    const msgToEdit = msgs.find(m => m.id.id === targetId);
-
-    if (msgToEdit) {
-      await msgToEdit.edit(newText);
-      res.json({ success: true });
-    } else {
-      res.status(404).json({ error: 'Message not found to edit' });
-    }
-  } catch (error) {
-    console.error('Edit error:', error);
-    res.status(500).json({ error: 'Failed to edit message' });
-  }
-});
-
-app.post('/api/admin/delete-message', async (req, res) => {
-  const { senderPhone, recipientJid, key } = req.body;
-  const client = activeClients[senderPhone];
-
-  if (!client) return res.status(400).json({ error: 'Session inactive' });
-
-  try {
-    const chat = await client.getChatById(recipientJid);
-    const msgs = await chat.fetchMessages({ limit: 20 });
-    const targetId = typeof key === 'object' ? key.id : key;
-    const msgToDelete = msgs.find(m => m.id.id === targetId);
-
-    if (msgToDelete) {
-      await msgToDelete.delete(true);
-      res.json({ success: true });
-    } else {
-      res.status(404).json({ error: 'Message not found' });
-    }
-  } catch (error) {
-    console.error('Delete error:', error);
-    res.status(500).json({ error: 'Failed to delete message' });
-  }
-});
-
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
   console.log(`[Puppeteer Server Running] http://localhost:${PORT}`);
   autoLoadExistingSessions();
 });
-      
