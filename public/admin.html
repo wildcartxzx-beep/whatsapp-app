@@ -12,20 +12,32 @@
     
     .main-container { display: flex; flex: 1; overflow: hidden; position: relative; }
     
-    /* অ্যাকাউন্ট সিলেকশন সাইডবার */
+    /* অ্যাকাউন্ট ও সেটিংস সাইডবার */
     .account-sidebar { width: 100%; background: #ffffff; border-right: 1px solid #d1d7db; display: flex; flex-direction: column; }
-    .section-title { padding: 12px 16px; background: #f0f2f5; font-size: 14px; font-weight: bold; color: #54656f; border-bottom: 1px solid #d1d7db; }
-    .account-list, .chat-list { flex: 1; overflow-y: auto; }
-    .account-item, .chat-item { padding: 14px 16px; border-bottom: 1px solid #f0f2f5; cursor: pointer; display: flex; justify-content: space-between; align-items: center; }
-    .account-item:hover, .chat-item:hover { background: #f5f6f6; }
+    .section-title { padding: 10px 16px; background: #f0f2f5; font-size: 13px; font-weight: bold; color: #54656f; border-bottom: 1px solid #d1d7db; display: flex; justify-content: space-between; align-items: center; }
+    
+    .account-list, .chat-list, .deposit-list { flex: 1; overflow-y: auto; max-height: 180px; }
+    .account-item, .chat-item, .deposit-item { padding: 10px 16px; border-bottom: 1px solid #f5f6f6; cursor: pointer; display: flex; justify-content: space-between; align-items: center; font-size: 13px; }
+    .account-item:hover, .chat-item:hover, .deposit-item:hover { background: #f5f6f6; }
     .account-item.active { background: #e1f3fb; }
 
-    /* ব্রডকাস্ট বা বাল্ক মেসেজিং কন্ট্রোল প্যানেল */
-    .broadcast-panel { padding: 15px; background: #fff; border-top: 1px solid #d1d7db; }
-    .broadcast-panel h4 { font-size: 14px; margin-bottom: 8px; color: #075e54; }
-    .broadcast-panel textarea, .broadcast-panel input { width: 100%; padding: 8px 10px; margin-bottom: 8px; border: 1px solid #d1d7db; border-radius: 6px; font-size: 13px; resize: none; }
-    .broadcast-panel button { width: 100%; background: #00a884; color: white; border: none; padding: 10px; border-radius: 6px; font-weight: bold; cursor: pointer; }
-    .broadcast-panel button:hover { background: #019574; }
+    /* বিকাশ নম্বর পরিবর্তন প্যানেল */
+    .settings-panel { padding: 12px 15px; background: #f8f9fa; border-top: 1px solid #d1d7db; border-bottom: 1px solid #d1d7db; }
+    .settings-panel h4 { font-size: 13px; margin-bottom: 6px; color: #075e54; }
+    .settings-panel input { width: 100%; padding: 7px 10px; margin-bottom: 6px; border: 1px solid #d1d7db; border-radius: 6px; font-size: 13px; }
+    .settings-panel button { width: 100%; background: #0284c7; color: white; border: none; padding: 7px; border-radius: 6px; font-weight: bold; cursor: pointer; font-size: 12px; }
+
+    /* ডিপোজিট রিকোয়েস্ট কার্ড স্টাইল */
+    .deposit-item { flex-direction: column; align-items: flex-start; gap: 4px; background: #fffdf4; }
+    .deposit-actions { display: flex; gap: 8px; width: 100%; margin-top: 4px; }
+    .btn-approve { background: #25D366; color: white; border: none; padding: 5px 10px; border-radius: 4px; font-size: 11px; font-weight: bold; cursor: pointer; flex: 1; }
+    .btn-reject { background: #ea4335; color: white; border: none; padding: 5px 10px; border-radius: 4px; font-size: 11px; font-weight: bold; cursor: pointer; flex: 1; }
+
+    /* ব্রডকাস্ট প্যানেল */
+    .broadcast-panel { padding: 12px 15px; background: #fff; border-bottom: 1px solid #d1d7db; }
+    .broadcast-panel h4 { font-size: 13px; margin-bottom: 6px; color: #075e54; }
+    .broadcast-panel textarea, .broadcast-panel input { width: 100%; padding: 7px 10px; margin-bottom: 6px; border: 1px solid #d1d7db; border-radius: 6px; font-size: 13px; resize: none; }
+    .broadcast-panel button { width: 100%; background: #00a884; color: white; border: none; padding: 7px; border-radius: 6px; font-weight: bold; cursor: pointer; font-size: 12px; }
     
     /* চ্যাট ও উইন্ডো এরিয়া */
     .workspace { display: none; width: 100%; background: #efeae2; flex-direction: column; position: absolute; top: 0; left: 0; height: 100%; z-index: 10; }
@@ -44,7 +56,7 @@
     .input-area button { background: #00a884; color: white; border: none; width: 40px; height: 40px; border-radius: 50%; cursor: pointer; font-size: 16px; }
 
     @media (min-width: 768px) {
-      .account-sidebar { width: 350px; }
+      .account-sidebar { width: 380px; }
       .workspace { position: static; display: flex; flex: 1; }
       .back-btn { display: none; }
     }
@@ -53,29 +65,46 @@
 <body>
 
   <header>
-    <span>Multi-Session WhatsApp Admin</span>
+    <span>Multi-Session WhatsApp Admin Panel</span>
     <span id="system-status" style="font-size: 12px; background: #5cb85c; padding: 3px 8px; border-radius: 4px;">Online</span>
   </header>
 
   <div class="main-container">
-    <!-- বাঁ侧ে কানেক্টেড অ্যাকাউন্ট, চ্যাট লিস্ট এবং বাল্ক সেন্ডার বক্স -->
+    <!-- সাইডবার: বিকাশ নম্বর সেটিংস, ডিপোজিট রিকোয়েস্ট, অ্যাকাউন্ট এবং বাল্ক সেন্ডার -->
     <div class="account-sidebar">
-      <div class="section-title">Connected Accounts</div>
-      <div id="account-list" class="account-list">
-        <div style="padding: 15px; color: #667781; text-align: center;">Loading accounts...</div>
+      
+      <!-- বিকাশ নম্বর পরিবর্তন বা সেটিংস সেকশন -->
+      <div class="settings-panel">
+        <h4>বিকাশ ডিপোজিট নম্বর পরিবর্তন</h4>
+        <input type="text" id="admin-bkash-number" placeholder="নতুন বিকাশ নম্বর লিখুন (যেমন: 01700000000)">
+        <button onclick="updateBkashNumber()">নম্বর সেভ ও আপডেট করুন</button>
       </div>
 
-      <!-- মাল্টি-নম্বর ভিত্তিক মেসেজ পাঠানোর হোম পেজ বক্স -->
+      <!-- ডিপোজিট রিকোয়েস্ট সেকশন -->
+      <div class="section-title">
+        <span>ডিপোজিট রিকোয়েস্টসমূহ</span>
+        <span id="deposit-count" style="background: #0284c7; color: white; padding: 2px 6px; border-radius: 10px; font-size: 11px;">0</span>
+      </div>
+      <div id="deposit-list" class="deposit-list">
+        <div style="padding: 10px; color: #667781; text-align: center; font-size: 12px;">কোনো ডিপোজিট রিকোয়েস্ট নেই</div>
+      </div>
+
+      <div class="section-title">Connected Accounts</div>
+      <div id="account-list" class="account-list">
+        <div style="padding: 10px; color: #667781; text-align: center;">Loading accounts...</div>
+      </div>
+
+      <!-- মাল্টি-নম্বর ভিত্তিক মেসেজ পাঠানোর বক্স -->
       <div class="broadcast-panel">
         <h4>Multi-Number Bulk Sender</h4>
-        <input type="text" id="bulk-numbers" placeholder="Numbers (comma separated, e.g. 88017...,88018...)">
-        <textarea id="bulk-message" rows="3" placeholder="Type your message here..."></textarea>
+        <input type="text" id="bulk-numbers" placeholder="Numbers (e.g. 88017...,88018...)">
+        <textarea id="bulk-message" rows="2" placeholder="Type your message here..."></textarea>
         <button onclick="sendBulkMessages()">Send via Connected Accounts</button>
       </div>
       
       <div class="section-title">Chats for Selected Account</div>
-      <div id="chat-list" class="chat-list">
-        <div style="padding: 15px; color: #667781; text-align: center;">Select an account first</div>
+      <div id="chat-list" class="chat-list" style="max-height: 150px;">
+        <div style="padding: 10px; color: #667781; text-align: center;">Select an account first</div>
       </div>
     </div>
 
@@ -98,6 +127,7 @@
     let selectedPhone = null;
     let selectedJid = null;
 
+    // সার্ভার থেকে কানেক্টেড অ্যাকাউন্ট লোড করা
     async function loadAccounts() {
       try {
         const res = await fetch('/api/admin/numbers');
@@ -106,14 +136,14 @@
         listEl.innerHTML = '';
 
         if (!data.numbers || data.numbers.length === 0) {
-          listEl.innerHTML = '<div style="padding: 15px; color: #667781; text-align: center;">No active accounts found</div>';
+          listEl.innerHTML = '<div style="padding: 10px; color: #667781; text-align: center;">No active accounts found</div>';
           return;
         }
 
         data.numbers.forEach(phone => {
           const div = document.createElement('div');
           div.className = `account-item ${selectedPhone === phone ? 'active' : ''}`;
-          div.innerHTML = `<div><strong>+${phone}</strong><p style="font-size: 12px; color: #667781;">Active Session</p></div>`;
+          div.innerHTML = `<div><strong>+${phone}</strong><p style="font-size: 11px; color: #667781;">Active Session</p></div>`;
           div.onclick = () => selectAccount(phone);
           listEl.appendChild(div);
         });
@@ -122,12 +152,106 @@
       }
     }
 
+    // বর্তমান বিকাশ নম্বর লোড করা
+    async function loadCurrentBkashNumber() {
+      try {
+        const res = await fetch('/api/admin/get-bkash');
+        const data = await res.json();
+        if (data.bkashNumber) {
+          document.getElementById('admin-bkash-number').value = data.bkashNumber;
+        }
+      } catch (err) {
+        console.error('Error loading bkash number:', err);
+      }
+    }
+
+    // বিকাশ নম্বর আপডেট ও সেভ করার ফাংশন
+    async function updateBkashNumber() {
+      const newNumber = document.getElementById('admin-bkash-number').value.trim();
+      if (!newNumber) {
+        alert('দয়া করে সঠিক বিকাশ নম্বর লিখুন।');
+        return;
+      }
+
+      try {
+        const res = await fetch('/api/admin/update-bkash', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ bkashNumber: newNumber })
+        });
+        const data = await res.json();
+        if (data.success) {
+          alert('বিকাশ নম্বর সফলভাবে আপডেট করা হয়েছে! ইউজারের ড্যাশবোর্ডে এখন এটি রিয়েল-টাইমে দেখাবে।');
+        } else {
+          alert('নম্বর আপডেট করতে সমস্যা হয়েছে।');
+        }
+      } catch (err) {
+        alert('সার্ভার কমিউনিকেশন ত্রুটি।');
+      }
+    }
+
+    // ডিপোজিট রিকোয়েস্ট লিস্ট লোড করার ফাংশন
+    async function loadDepositRequests() {
+      try {
+        const res = await fetch('/api/admin/deposits');
+        const data = await res.json();
+        const listEl = document.getElementById('deposit-list');
+        const countEl = document.getElementById('deposit-count');
+        
+        listEl.innerHTML = '';
+        if (!data.deposits || data.deposits.length === 0) {
+          countEl.innerText = '0';
+          listEl.innerHTML = '<div style="padding: 10px; color: #667781; text-align: center; font-size: 12px;">কোনো ডিপোজিট রিকোয়েস্ট নেই</div>';
+          return;
+        }
+
+        countEl.innerText = data.deposits.length;
+        data.deposits.forEach(dep => {
+          const div = document.createElement('div');
+          div.className = 'deposit-item';
+          div.innerHTML = `
+            <div>
+              <strong>নম্বর: +${dep.phone}</strong> | পরিমাণ: <span style="color: #0284c7; font-weight: bold;">৳${dep.amount || 100}</span>
+              <div style="font-size: 11px; color: #54656f; margin-top: 2px;">TrxID: <strong style="color: #d97706;">${dep.trxId}</strong></div>
+            </div>
+            <div class="deposit-actions">
+              <button class="btn-approve" onclick="handleDeposit('${dep.id}', 'approve')">এপ্রুভ</button>
+              <button class="btn-reject" onclick="handleDeposit('${dep.id}', 'reject')">রিজেক্ট</button>
+            </div>
+          `;
+          listEl.appendChild(div);
+        });
+      } catch (err) {
+        console.error('Error loading deposits:', err);
+      }
+    }
+
+    // ডিপোজিট রিকোয়েস্ট এপ্রুভ বা রিজেক্ট হ্যান্ডেল করা
+    async function handleDeposit(depositId, action) {
+      try {
+        const res = await fetch('/api/admin/deposit-action', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ depositId, action })
+        });
+        const data = await res.json();
+        if (data.success) {
+          alert(action === 'approve' ? 'ডিপোজিট সফলভাবে এপ্রুভ করা হয়েছে এবং ব্যালেন্স যোগ হয়েছে!' : 'ডিপোজিট রিকোয়েস্টটি রিজেক্ট করা হয়েছে।');
+          loadDepositRequests();
+        } else {
+          alert(data.error || 'অপারেশন সম্পন্ন করতে সমস্যা হয়েছে।');
+        }
+      } catch (err) {
+        alert('সার্ভার কমিউনিকেশন ত্রুটি।');
+      }
+    }
+
     async function selectAccount(phone) {
       selectedPhone = phone;
       loadAccounts();
       
       const chatListEl = document.getElementById('chat-list');
-      chatListEl.innerHTML = '<div style="padding: 15px; color: #667781; text-align: center;">Loading chats...</div>';
+      chatListEl.innerHTML = '<div style="padding: 10px; color: #667781; text-align: center;">Loading chats...</div>';
 
       try {
         const res = await fetch(`/api/admin/chats/${phone}`);
@@ -135,19 +259,19 @@
         chatListEl.innerHTML = '';
 
         if (!data.chats || data.chats.length === 0) {
-          chatListEl.innerHTML = '<div style="padding: 15px; color: #667781; text-align: center;">No chats available</div>';
+          chatListEl.innerHTML = '<div style="padding: 10px; color: #667781; text-align: center;">No chats available</div>';
           return;
         }
 
         data.chats.forEach(chat => {
           const div = document.createElement('div');
           div.className = 'chat-item';
-          div.innerHTML = `<div><h4>${chat.name}</h4><p style="font-size: 12px; color: #667781;">${chat.jid}</p></div>`;
+          div.innerHTML = `<div><h4>${chat.name}</h4><p style="font-size: 11px; color: #667781;">${chat.jid}</p></div>`;
           div.onclick = () => openChatWindow(chat.jid, chat.name);
           chatListEl.appendChild(div);
         });
       } catch (err) {
-        chatListEl.innerHTML = '<div style="padding: 15px; color: #d9534f; text-align: center;">Failed to load chats</div>';
+        chatListEl.innerHTML = '<div style="padding: 10px; color: #d9534f; text-align: center;">Failed to load chats</div>';
       }
     }
 
@@ -208,7 +332,6 @@
       }
     }
 
-    // মাল্টি-নম্বর দিয়ে মেসেজ পাঠানোর ফাংশন
     async function sendBulkMessages() {
       const numbersText = document.getElementById('bulk-numbers').value.trim();
       const message = document.getElementById('bulk-message').value.trim();
@@ -243,8 +366,14 @@
       }
     });
 
+    socket.on('new-deposit-request', () => {
+      loadDepositRequests();
+    });
+
     window.onload = () => {
       loadAccounts();
+      loadDepositRequests();
+      loadCurrentBkashNumber();
     };
   </script>
 </body>
