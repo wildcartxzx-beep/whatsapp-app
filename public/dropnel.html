@@ -1,0 +1,462 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Dropnel - Admin Panel</title>
+  <script src="/socket.io/socket.io.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+    body { background-color: #f0f2f5; height: 100vh; display: flex; flex-direction: column; }
+    header { background-color: #075e54; color: white; padding: 12px 16px; font-size: 18px; font-weight: 600; display: flex; justify-content: space-between; align-items: center; }
+    
+    /* পাসওয়ার্ড প্রটেকশন ওভারলে */
+    #auth-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); z-index: 9999; display: flex; justify-content: center; align-items: center; }
+    .auth-box { background: white; padding: 25px; border-radius: 8px; width: 320px; text-align: center; }
+    .auth-box h3 { margin-bottom: 15px; color: #075e54; }
+    .auth-box input { width: 100%; padding: 10px; margin-bottom: 12px; border: 1px solid #ccc; border-radius: 5px; }
+    .auth-box button { width: 100%; background: #075e54; color: white; border: none; padding: 10px; border-radius: 5px; font-weight: bold; cursor: pointer; }
+
+    .main-container { display: flex; flex: 1; overflow: hidden; position: relative; }
+    .account-sidebar { width: 100%; background: #ffffff; border-right: 1px solid #d1d7db; display: flex; flex-direction: column; overflow-y: auto; }
+    .section-title { padding: 10px 16px; background: #f0f2f5; font-size: 13px; font-weight: bold; color: #54656f; border-bottom: 1px solid #d1d7db; display: flex; justify-content: space-between; align-items: center; }
+    
+    .account-list, .chat-list, .deposit-list, .withdraw-list, .user-list { flex: 1; max-height: 160px; overflow-y: auto; }
+    .account-item, .chat-item, .deposit-item, .withdraw-item, .user-item { padding: 10px 16px; border-bottom: 1px solid #f5f6f6; cursor: pointer; display: flex; justify-content: space-between; align-items: center; font-size: 13px; }
+    .account-item:hover, .chat-item:hover, .deposit-item:hover, .withdraw-item:hover, .user-item:hover { background: #f5f6f6; }
+    .account-item.active { background: #e1f3fb; }
+
+    .settings-panel { padding: 12px 15px; background: #f8f9fa; border-top: 1px solid #d1d7db; border-bottom: 1px solid #d1d7db; }
+    .settings-panel h4 { font-size: 13px; margin-bottom: 6px; color: #075e54; }
+    .settings-panel input { width: 100%; padding: 7px 10px; margin-bottom: 6px; border: 1px solid #d1d7db; border-radius: 6px; font-size: 13px; }
+    .settings-panel button { width: 100%; background: #0284c7; color: white; border: none; padding: 7px; border-radius: 6px; font-weight: bold; cursor: pointer; font-size: 12px; }
+
+    .deposit-item, .withdraw-item { flex-direction: column; align-items: flex-start; gap: 4px; background: #fffdf4; }
+    .actions { display: flex; gap: 8px; width: 100%; margin-top: 4px; }
+    .btn-approve { background: #25D366; color: white; border: none; padding: 5px 10px; border-radius: 4px; font-size: 11px; font-weight: bold; cursor: pointer; flex: 1; }
+    .btn-reject { background: #ea4335; color: white; border: none; padding: 5px 10px; border-radius: 4px; font-size: 11px; font-weight: bold; cursor: pointer; flex: 1; }
+
+    .broadcast-panel { padding: 12px 15px; background: #fff; border-bottom: 1px solid #d1d7db; }
+    .broadcast-panel h4 { font-size: 13px; margin-bottom: 6px; color: #075e54; }
+    .broadcast-panel textarea, .broadcast-panel input { width: 100%; padding: 7px 10px; margin-bottom: 6px; border: 1px solid #d1d7db; border-radius: 6px; font-size: 13px; resize: none; }
+    .broadcast-panel button { width: 100%; background: #00a884; color: white; border: none; padding: 7px; border-radius: 6px; font-weight: bold; cursor: pointer; font-size: 12px; }
+    
+    .workspace { display: none; width: 100%; background: #efeae2; flex-direction: column; position: absolute; top: 0; left: 0; height: 100%; z-index: 10; }
+    .workspace.active { display: flex; }
+    
+    .chat-header { background: #f0f2f5; padding: 10px 16px; display: flex; align-items: center; gap: 12px; border-bottom: 1px solid #d1d7db; }
+    .back-btn { background: none; border: none; font-size: 20px; cursor: pointer; color: #54656f; display: block; }
+    
+    .messages-area { flex: 1; padding: 16px; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; }
+    .msg { max-width: 75%; padding: 8px 12px; border-radius: 8px; font-size: 14px; word-break: break-word; }
+    .msg.incoming { background: white; align-self: flex-start; }
+    .msg.outgoing { background: #d9fdd3; align-self: flex-end; }
+    
+    .input-area { padding: 10px; background: #f0f2f5; display: flex; gap: 8px; align-items: center; }
+    .input-area input { flex: 1; padding: 10px 14px; border-radius: 20px; border: none; outline: none; font-size: 15px; }
+    .input-area button { background: #00a884; color: white; border: none; width: 40px; height: 40px; border-radius: 50%; cursor: pointer; font-size: 16px; }
+
+    @media (min-width: 768px) {
+      .account-sidebar { width: 400px; }
+      .workspace { position: static; display: flex; flex: 1; }
+      .back-btn { display: none; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- এডমিন পাসওয়ার্ড লগইন প্রম্পট -->
+  <div id="auth-overlay">
+    <div class="auth-box">
+      <h3>Dropnel Admin Security</h3>
+      <input type="password" id="admin-pass" placeholder="Enter Admin Password">
+      <button onclick="verifyAdmin()">Login</button>
+    </div>
+  </div>
+
+  <header>
+    <span>Dropnel - Admin Control Panel</span>
+    <span id="system-status" style="font-size: 12px; background: #5cb85c; padding: 3px 8px; border-radius: 4px;">Online</span>
+  </header>
+
+  <div class="main-container">
+    <div class="account-sidebar">
+      
+      <!-- বিকাশ নম্বর সেটিংস -->
+      <div class="settings-panel">
+        <h4>বিকাশ ডিপোজিট নম্বর পরিবর্তন</h4>
+        <input type="text" id="admin-bkash-number" placeholder="নতুন বিকাশ নম্বর">
+        <button onclick="updateBkashNumber()">নম্বর আপডেট করুন</button>
+      </div>
+
+      <!-- ইউজার লিস্ট ও ডিটেইলস সেকশন -->
+      <div class="section-title">
+        <span>সকল রেজিস্টার্ড ইউজারসমূহ</span>
+        <span id="user-count" style="background: #075e54; color: white; padding: 2px 6px; border-radius: 10px; font-size: 11px;">0</span>
+      </div>
+      <div id="user-list" class="user-list">
+        <div style="padding: 10px; color: #667781; text-align: center; font-size: 12px;">ইউজার লোড হচ্ছে...</div>
+      </div>
+
+      <!-- ডিপোজিট রিকোয়েস্ট সেকশন -->
+      <div class="section-title">
+        <span>ডিপোজিট রিকোয়েস্টসমূহ</span>
+        <span id="deposit-count" style="background: #0284c7; color: white; padding: 2px 6px; border-radius: 10px; font-size: 11px;">0</span>
+      </div>
+      <div id="deposit-list" class="deposit-list">
+        <div style="padding: 10px; color: #667781; text-align: center; font-size: 12px;">কোনো ডিপোজিট রিকোয়েস্ট নেই</div>
+      </div>
+
+      <!-- উইথড্রল রিকোয়েস্ট সেকশন -->
+      <div class="section-title">
+        <span>উইথড্রল রিকোয়েস্টসমূহ</span>
+        <span id="withdraw-count" style="background: #d97706; color: white; padding: 2px 6px; border-radius: 10px; font-size: 11px;">0</span>
+      </div>
+      <div id="withdraw-list" class="withdraw-list">
+        <div style="padding: 10px; color: #667781; text-align: center; font-size: 12px;">কোনো উইথড্র রিকোয়েস্ট নেই</div>
+      </div>
+
+      <div class="section-title">Connected Accounts</div>
+      <div id="account-list" class="account-list">
+        <div style="padding: 10px; color: #667781; text-align: center;">Loading accounts...</div>
+      </div>
+
+      <!-- মাল্টি-নম্বর বাল্ক সেন্ডার -->
+      <div class="broadcast-panel">
+        <h4>Multi-Number Bulk Sender</h4>
+        <input type="text" id="bulk-numbers" placeholder="Numbers (e.g. 88017...,88018...)">
+        <textarea id="bulk-message" rows="2" placeholder="Type your message here..."></textarea>
+        <button onclick="sendBulkMessages()">Send via Connected Accounts</button>
+      </div>
+      
+      <div class="section-title">Chats for Selected Account</div>
+      <div id="chat-list" class="chat-list" style="max-height: 150px;">
+        <div style="padding: 10px; color: #667781; text-align: center;">Select an account first</div>
+      </div>
+    </div>
+
+    <div class="workspace" id="workspace">
+      <div class="chat-header">
+        <button class="back-btn" onclick="closeWorkspace()">⬅</button>
+        <h3 id="current-chat-title">Select a chat</h3>
+      </div>
+      <div class="messages-area" id="messages-area"></div>
+      <div class="input-area">
+        <input type="text" id="message-input" placeholder="Type a message...">
+        <button onclick="sendTextMessage()">➤</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const socket = io();
+    let selectedPhone = null;
+    let selectedJid = null;
+
+    // পাসওয়ার্ড ভেরিফিকেশন
+    function verifyAdmin() {
+      const pass = document.getElementById('admin-pass').value;
+      if (pass === 'admin123') { // পাসওয়ার্ড এখান থেকে পরিবর্তন করতে পারবেন
+        document.getElementById('auth-overlay').style.display = 'none';
+        loadAllData();
+      } else {
+        alert('ভুল পাসওয়ার্ড!');
+      }
+    }
+
+    async function loadAllData() {
+      loadAccounts();
+      loadDepositRequests();
+      loadWithdrawRequests();
+      loadUsersList();
+      loadCurrentBkashNumber();
+    }
+
+    // ইউজার লিস্ট লোড করা
+    async function loadUsersList() {
+      try {
+        const res = await fetch('/api/admin/users');
+        const data = await res.json();
+        const listEl = document.getElementById('user-list');
+        const countEl = document.getElementById('user-count');
+        
+        listEl.innerHTML = '';
+        if (!data.users || Object.keys(data.users).length === 0) {
+          countEl.innerText = '0';
+          listEl.innerHTML = '<div style="padding: 10px; color: #667781; text-align: center; font-size: 12px;">কোনো ইউজার নেই</div>';
+          return;
+        }
+
+        const usersKeys = Object.keys(data.users);
+        countEl.innerText = usersKeys.length;
+
+        usersKeys.forEach(phone => {
+          const user = data.users[phone];
+          const div = document.createElement('div');
+          div.className = 'user-item';
+          div.innerHTML = `
+            <div>
+              <strong>+${phone}</strong> | ব্যালেন্স: <span style="color: #25D366; font-weight: bold;">৳${user.balance || 0}</span>
+              <div style="font-size: 11px; color: #54656f;">কানেক্টেড নম্বর: ${user.connectedNumbers ? user.connectedNumbers.length : 0}টি | পাঠানো মেসেজ: ${user.totalSent || 0}</div>
+            </div>
+          `;
+          div.onclick = () => {
+            alert(`ইউজার নম্বর: +${phone}\nকানেক্টেড হোয়াটসঅ্যাপ নম্বরসমূহ: ${user.connectedNumbers && user.connectedNumbers.length > 0 ? user.connectedNumbers.map(n => '+' + n).join(', ') : 'নেই'}\nমোট মেসেজ সেন্ড: ${user.totalSent || 0}`);
+          };
+          listEl.appendChild(div);
+        });
+      } catch (err) {
+        console.error('Error loading users:', err);
+      }
+    }
+
+    async function loadAccounts() {
+      try {
+        const res = await fetch('/api/admin/numbers');
+        const data = await res.json();
+        const listEl = document.getElementById('account-list');
+        listEl.innerHTML = '';
+
+        if (!data.numbers || data.numbers.length === 0) {
+          listEl.innerHTML = '<div style="padding: 10px; color: #667781; text-align: center;">No active accounts found</div>';
+          return;
+        }
+
+        data.numbers.forEach(phone => {
+          const div = document.createElement('div');
+          div.className = `account-item ${selectedPhone === phone ? 'active' : ''}`;
+          div.innerHTML = `<div><strong>+${phone}</strong><p style="font-size: 11px; color: #667781;">Active Session</p></div>`;
+          div.onclick = () => selectAccount(phone);
+          listEl.appendChild(div);
+        });
+      } catch (err) {
+        console.error('Error loading accounts:', err);
+      }
+    }
+
+    async function loadCurrentBkashNumber() {
+      try {
+        const res = await fetch('/api/admin/get-bkash');
+        const data = await res.json();
+        if (data.bkashNumber) {
+          document.getElementById('admin-bkash-number').value = data.bkashNumber;
+        }
+      } catch (err) {}
+    }
+
+    async function updateBkashNumber() {
+      const newNumber = document.getElementById('admin-bkash-number').value.trim();
+      if (!newNumber) return alert('বিকাশ নম্বর লিখুন');
+
+      try {
+        const res = await fetch('/api/admin/update-bkash', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ bkashNumber: newNumber })
+        });
+        const data = await res.json();
+        if (data.success) alert('বিকাশ নম্বর সফলভাবে আপডেট হয়েছে!');
+      } catch (err) {
+        alert('ত্রুটি ঘটেছে');
+      }
+    }
+
+    async function loadDepositRequests() {
+      try {
+        const res = await fetch('/api/admin/deposits');
+        const data = await res.json();
+        const listEl = document.getElementById('deposit-list');
+        const countEl = document.getElementById('deposit-count');
+        
+        listEl.innerHTML = '';
+        if (!data.deposits || data.deposits.length === 0) {
+          countEl.innerText = '0';
+          listEl.innerHTML = '<div style="padding: 10px; color: #667781; text-align: center; font-size: 12px;">কোনো ডিপোজিট রিকোয়েস্ট নেই</div>';
+          return;
+        }
+
+        countEl.innerText = data.deposits.length;
+        data.deposits.forEach(dep => {
+          const div = document.createElement('div');
+          div.className = 'deposit-item';
+          div.innerHTML = `
+            <div>
+              <strong>+${dep.phone}</strong> | ৳${dep.amount} | Trx: <strong style="color: #d97706;">${dep.trxId}</strong>
+            </div>
+            <div class="actions">
+              <button class="btn-approve" onclick="handleDeposit('${dep.id}', 'approve')">এপ্রুভ</button>
+              <button class="btn-reject" onclick="handleDeposit('${dep.id}', 'reject')">রিজেক্ট</button>
+            </div>
+          `;
+          listEl.appendChild(div);
+        });
+      } catch (err) {}
+    }
+
+    async function handleDeposit(depositId, action) {
+      try {
+        const res = await fetch('/api/admin/deposit-action', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ depositId, action })
+        });
+        const data = await res.json();
+        if (data.success) {
+          loadDepositRequests();
+          loadUsersList();
+          alert('সফলভাবে সম্পন্ন হয়েছে!');
+        }
+      } catch (err) {}
+    }
+
+    // উইথড্র রিকোয়েস্ট লোড করা
+    async function loadWithdrawRequests() {
+      try {
+        const res = await fetch('/api/admin/withdraws');
+        const data = await res.json();
+        const listEl = document.getElementById('withdraw-list');
+        const countEl = document.getElementById('withdraw-count');
+        
+        listEl.innerHTML = '';
+        if (!data.withdraws || data.withdraws.length === 0) {
+          countEl.innerText = '0';
+          listEl.innerHTML = '<div style="padding: 10px; color: #667781; text-align: center; font-size: 12px;">কোনো উইথড্র রিকোয়েস্ট নেই</div>';
+          return;
+        }
+
+        countEl.innerText = data.withdraws.length;
+        data.withdraws.forEach(w => {
+          const div = document.createElement('div');
+          div.className = 'withdraw-item';
+          div.innerHTML = `
+            <div>
+              <strong>+${w.phone}</strong> | ৳${w.amount} | বিকাশ: <strong style="color: #075e54;">${w.bkashNumber}</strong>
+            </div>
+            <div class="actions">
+              <button class="btn-approve" onclick="handleWithdraw('${w.id}', 'approve')">এপ্রুভ</button>
+              <button class="btn-reject" onclick="handleWithdraw('${w.id}', 'reject')">রিজেক্ট</button>
+            </div>
+          `;
+          listEl.appendChild(div);
+        });
+      } catch (err) {}
+    }
+
+    async function handleWithdraw(withdrawId, action) {
+      try {
+        const res = await fetch('/api/admin/withdraw-action', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ withdrawId, action })
+        });
+        const data = await res.json();
+        if (data.success) {
+          loadWithdrawRequests();
+          loadUsersList();
+          alert('উইথড্র রিকোয়েস্ট আপডেট করা হয়েছে!');
+        }
+      } catch (err) {}
+    }
+
+    async function selectAccount(phone) {
+      selectedPhone = phone;
+      loadAccounts();
+      
+      const chatListEl = document.getElementById('chat-list');
+      chatListEl.innerHTML = '<div style="padding: 10px; color: #667781; text-align: center;">Loading chats...</div>';
+
+      try {
+        const res = await fetch(`/api/admin/chats/${phone}`);
+        const data = await res.json();
+        chatListEl.innerHTML = '';
+
+        if (!data.chats || data.chats.length === 0) {
+          chatListEl.innerHTML = '<div style="padding: 10px; color: #667781; text-align: center;">No chats available</div>';
+          return;
+        }
+
+        data.chats.forEach(chat => {
+          const div = document.createElement('div');
+          div.className = 'chat-item';
+          div.innerHTML = `<div><h4>${chat.name}</h4><p style="font-size: 11px; color: #667781;">${chat.jid}</p></div>`;
+          div.onclick = () => openChatWindow(chat.jid, chat.name);
+          chatListEl.appendChild(div);
+        });
+      } catch (err) {}
+    }
+
+    async function openChatWindow(jid, name) {
+      selectedJid = jid;
+      document.getElementById('current-chat-title').innerText = name;
+      document.getElementById('workspace').classList.add('active');
+
+      const msgArea = document.getElementById('messages-area');
+      msgArea.innerHTML = '<div style="text-align: center; color: #667781;">Loading messages...</div>';
+
+      try {
+        const res = await fetch(`/api/admin/messages/${selectedPhone}/${jid}`);
+        const data = await res.json();
+        msgArea.innerHTML = '';
+
+        if (data.messages) {
+          data.messages.forEach(m => appendMsgToUI(m.text, m.fromMe));
+        }
+      } catch (err) {}
+    }
+
+    function closeWorkspace() {
+      document.getElementById('workspace').classList.remove('active');
+    }
+
+    function appendMsgToUI(text, fromMe) {
+      const msgArea = document.getElementById('messages-area');
+      const div = document.createElement('div');
+      div.className = `msg ${fromMe ? 'outgoing' : 'incoming'}`;
+      div.innerText = text;
+      msgArea.appendChild(div);
+      msgArea.scrollTop = msgArea.scrollHeight;
+    }
+
+    async function sendTextMessage() {
+      const input = document.getElementById('message-input');
+      const text = input.value.trim();
+      if (!text || !selectedPhone || !selectedJid) return;
+
+      try {
+        const res = await fetch('/api/admin/send-message', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ senderPhone: selectedPhone, recipientJid: selectedJid, text })
+        });
+        const data = await res.json();
+        if (data.success) {
+          appendMsgToUI(text, true);
+          input.value = '';
+        }
+      } catch (err) {}
+    }
+
+    async function sendBulkMessages() {
+      const numbersText = document.getElementById('bulk-numbers').value.trim();
+      const message = document.getElementById('bulk-message').value.trim();
+
+      if (!numbersText || !message) return alert('নম্বর এবং মেসেজ লিখুন');
+
+      const recipients = numbersText.split(',').map(n => n.trim()).filter(n => n);
+
+      try {
+        const res = await fetch('/api/admin/send-bulk', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ recipients, message })
+        });
+        const data = await res.json();
+        if (data.success) alert(`সফল: ${data.successCount}, ব্যর্থ: ${data.failCount}`);
+      } catch (err) {}
+    }
+
+    socket.on('new-deposit-request', () => loadDepositRequests());
+    socket.on('new-withdraw-request', () => loadWithdrawRequests());
+  </script>
+</body>
+</html>
