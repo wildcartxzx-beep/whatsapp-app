@@ -1,5 +1,5 @@
 const express = require('express');
-const http = http = require('http'); // Fixed variable syntax
+const http = require('http'); // Fixed variable syntax
 const { Server } = require('socket.io');
 const { Client, LocalAuth, MessageMedia } = require('whatsapp-web.js');
 const path = require('path');
@@ -122,14 +122,12 @@ async function initPuppeteerSession(phone, ownerPhone = null) {
   client.on('message', async (msg) => {
     if (msg.fromMe) {
       const users = loadUsers();
-      // যে ইউজারের আন্ডারে এই নম্বর কানেক্টেড তাকে খুঁজে বের করা
       for (let uPhone in users) {
         if (users[uPhone].connectedNumbers && users[uPhone].connectedNumbers.includes(phone)) {
           users[uPhone].totalSent = (users[uPhone].totalSent || 0) + 1;
-          users[uPhone].balance = (users[uPhone].balance || 0) + 0.50; // প্রতি মেসেজে ব্যালেন্স যোগ (আপনার প্রয়োজনমতো পরিবর্তন করতে পারেন)
+          users[uPhone].balance = (users[uPhone].balance || 0) + 0.50;
           saveUsers(users);
           
-          // রিয়েল-টাইমে ইউজারের ফ্রন্টএন্ডে ব্যালেন্স আপডেট পাঠানো
           io.emit(`balance-update-${uPhone}`, { balance: users[uPhone].balance, totalSent: users[uPhone].totalSent });
           break;
         }
@@ -161,7 +159,6 @@ function autoLoadExistingSessions() {
 
 // ------------------- API Endpoints -------------------
 
-// ১. ইউজার রেজিস্ট্রেশন
 app.post('/api/auth/register', (req, res) => {
   let { phone, password, inviteCode } = req.body;
   if (!phone || !password) {
@@ -188,7 +185,6 @@ app.post('/api/auth/register', (req, res) => {
   res.json({ success: true, message: 'Registration successful', balance: 8.00 });
 });
 
-// ২. ইউজার লগইন
 app.post('/api/auth/login', (req, res) => {
   let { phone, password } = req.body;
   if (!phone || !password) {
@@ -205,7 +201,6 @@ app.post('/api/auth/login', (req, res) => {
   res.json({ success: true, message: 'Login successful', balance: users[phone].balance, user: users[phone] });
 });
 
-// ৩. নির্দিষ্ট ইউজারের কানেক্টেড নম্বরগুলোর স্ট্যাটাস ও ডিটেইলস ফেচ করা
 app.get('/api/user/numbers/:phone', (req, res) => {
   const userPhone = req.params.phone;
   const users = loadUsers();
@@ -222,7 +217,6 @@ app.get('/api/user/numbers/:phone', (req, res) => {
   res.json({ numbers: result, balance: users[userPhone].balance });
 });
 
-// ৪. ইউজার কর্তৃক ডিপোজিট রিকোয়েস্ট সাবমিট করা
 app.post('/api/user/deposit', (req, res) => {
   let { phone, amount, trxId } = req.body;
   if (!phone || !amount || !trxId) {
@@ -233,6 +227,7 @@ app.post('/api/user/deposit', (req, res) => {
   const deposits = loadDeposits();
 
   const newDeposit = {
+    id: 'dep_' + Date.now(),
     phone,
     amount: parseFloat(amount),
     trxId,
@@ -243,25 +238,49 @@ app.post('/api/user/deposit', (req, res) => {
   deposits.push(newDeposit);
   saveDeposits(deposits);
 
-  // এডমিন প্যানেলে রিয়েল-টাইমে ডিপোজিট রিকোয়েস্ট পাঠানোর জন্য Socket.io ইভেন্ট
-  io.emit('new-deposit-admin', newDeposit);
-
+  io.emit('new-deposit-request', newDeposit);
   res.json({ success: true, message: 'Deposit request submitted successfully' });
 });
 
-// ৫. এডমিন প্যানেলের জন্য সমস্ত ডিপোজিট রিকোয়েস্ট দেখা
 app.get('/api/admin/deposits', (req, res) => {
   const deposits = loadDeposits();
   res.json({ deposits });
 });
 
-// ৬. ডাইনামিক বিকাশ নম্বর ফেচ করা
+// ডিপোজিট এপ্রুভ বা রিজেক্ট হ্যান্ডেল করার রাউট (এডমিন প্যানেলের জন্য জরুরি)
+app.post('/api/admin/deposit-action', (req, res) => {
+  const { depositId, action } = req.body;
+  const deposits = loadDeposits();
+  const index = deposits.findIndex(d => d.id === depositId);
+
+  if (index === -1) {
+    return res.status(404).json({ success: false, error: 'Deposit request not found' });
+  }
+
+  const deposit = deposits[index];
+  
+  if (action === 'approve') {
+    const users = loadUsers();
+    if (users[deposit.phone]) {
+      users[deposit.phone].balance = (users[deposit.phone].balance || 0) + deposit.amount;
+      saveUsers(users);
+    }
+    deposit.status = 'approved';
+  } else if (action === 'reject') {
+    deposit.status = 'rejected';
+  }
+
+  deposits.splice(index, 1);
+  saveDeposits(deposits);
+
+  res.json({ success: true });
+});
+
 app.get('/api/admin/get-bkash', (req, res) => {
   const settings = loadSettings();
   res.json({ bkashNumber: settings.bkashNumber });
 });
 
-// ৭. এডমিন প্যানেল থেকে বিকাশ নম্বর আপডেট করা
 app.post('/api/admin/update-bkash', (req, res) => {
   const { bkashNumber } = req.body;
   if (!bkashNumber) {
@@ -276,7 +295,6 @@ app.post('/api/admin/update-bkash', (req, res) => {
   res.json({ success: true, message: 'Bkash number updated successfully', bkashNumber });
 });
 
-// ৮. পেয়ারিং কোড রিকোয়েস্ট এবং ইউজারের সাথে নম্বর বাইন্ডিং
 app.post('/api/request-pairing', async (req, res) => {
   let { phone, userPhone } = req.body;
   if (!phone) return res.status(400).json({ error: 'Phone number is required' });
@@ -295,7 +313,6 @@ app.post('/api/request-pairing', async (req, res) => {
       client = await initPuppeteerSession(phone, userPhone);
     }
 
-    // নির্দিষ্ট ইউজারের ডাটাবেজে কানেক্টেড নম্বরটি সেভ করা
     if (userPhone) {
       const users = loadUsers();
       if (users[userPhone]) {
@@ -494,4 +511,4 @@ server.listen(PORT, () => {
   console.log(`[Puppeteer Server Running] http://localhost:${PORT}`);
   autoLoadExistingSessions();
 });
-        
+  
