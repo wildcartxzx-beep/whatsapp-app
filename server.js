@@ -1,7 +1,7 @@
 const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
-const makeWASocket, { useMultiFileAuthState, DisconnectReason, Browsers } = require('@whiskeysockets/baileys');
+const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, Browsers } = require('@whiskeysockets/baileys');
 const { Boom } = require('@hapi/boom');
 const pino = require('pino');
 const path = require('path');
@@ -17,26 +17,21 @@ const io = new Server(server);
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
-// এডমিন প্যানেল রাউট (dropnel)
 app.get('/dropnel', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'admin.html'));
 });
 
-// সেশন ও ক্লায়েন্ট স্টোর
 const activeClients = {}; 
 const initializingClients = {}; 
 
-// ডেটা ফাইল পাথ
 const USERS_FILE = path.join(__dirname, 'users.json');
 const WITHDRAWS_FILE = path.join(__dirname, 'withdraws.json');
-
-// সেশন ডিরেক্টরি (Baileys Auth)
 const SESSIONS_DIR = path.join(__dirname, 'baileys_auth');
+
 if (!fs.existsSync(SESSIONS_DIR)) {
   fs.mkdirSync(SESSIONS_DIR, { recursive: true });
 }
 
-// ইউজার ডাটা লোড ও সেভ করার ফাংশন
 function loadUsers() {
   if (!fs.existsSync(USERS_FILE)) return {};
   try {
@@ -50,7 +45,6 @@ function saveUsers(users) {
   fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2));
 }
 
-// উইথড্রল রিকোয়েস্ট লোড ও সেভ করার ফাংশন
 function loadWithdraws() {
   if (!fs.existsSync(WITHDRAWS_FILE)) return [];
   try {
@@ -64,9 +58,6 @@ function saveWithdraws(withdraws) {
   fs.writeFileSync(WITHDRAWS_FILE, JSON.stringify(withdraws, null, 2));
 }
 
-/**
- * Baileys Socket ইনিশিয়ালাইজ করার ফাংশন
- */
 async function initBaileysSession(phone, ownerPhone = null) {
   if (activeClients[phone]) return activeClients[phone];
   if (initializingClients[phone]) return initializingClients[phone];
@@ -100,11 +91,9 @@ async function initBaileysSession(phone, ownerPhone = null) {
       delete initializingClients[phone];
       io.emit('session-updated', { phone, status: 'disconnected' });
 
-      // লজআউট না হয়ে থাকলে অটো রিকানেক্ট করার চেষ্টা
       if (statusCode !== DisconnectReason.loggedOut) {
         setTimeout(() => initBaileysSession(phone, ownerPhone), 5000);
       } else {
-        // ফোল্ডার ডিলিট করে সেশন ক্লিয়ার করা
         if (fs.existsSync(sessionPath)) {
           fs.rmSync(sessionPath, { recursive: true, force: true });
         }
@@ -114,7 +103,6 @@ async function initBaileysSession(phone, ownerPhone = null) {
 
   sock.ev.on('creds.update', saveCreds);
 
-  // ইনকামিং মেসেজ বা নিজের পাঠানো মেসেজ হ্যান্ডেল করা (ব্যালেন্স আপডেট লজিক)
   sock.ev.on('messages.upsert', async ({ messages, type }) => {
     if (type !== 'notify') return;
     for (const msg of messages) {
@@ -149,8 +137,6 @@ function autoLoadExistingSessions() {
     }
   });
 }
-
-// ------------------- API Endpoints -------------------
 
 app.post('/api/auth/register', (req, res) => {
   let { phone, password, inviteCode } = req.body;
@@ -211,7 +197,6 @@ app.get('/api/user/numbers/:phone', (req, res) => {
   res.json({ numbers: result, balance: users[userPhone].balance });
 });
 
-// ইউজার উইথড্র রিকোয়েস্ট
 app.post('/api/user/withdraw', (req, res) => {
   let { phone, amount, bkashNumber } = req.body;
   if (!phone || !amount || !bkashNumber) {
@@ -246,7 +231,6 @@ app.post('/api/user/withdraw', (req, res) => {
   res.json({ success: true, balance: users[phone].balance });
 });
 
-// এডমিন উইথড্র অ্যাকশন
 app.post('/api/admin/withdraw-action', (req, res) => {
   const { withdrawId, action } = req.body;
   const withdraws = loadWithdraws();
@@ -284,12 +268,11 @@ app.get('/api/admin/users', (req, res) => {
   res.json({ users: loadUsers() });
 });
 
-// পেয়ারিং কোড রিকোয়েস্ট হ্যান্ডলিং (Baileys Pairing Code)
 app.post('/api/request-pairing', async (req, res) => {
   let { phone, userPhone } = req.body;
   if (!phone) return res.status(400).json({ error: 'Phone number is required' });
 
-  // নাম্বার থেকে প্লাস (+) বা অন্য কোনো স্পেশাল ক্যারেক্টার চিরতরে বাদ দিয়ে শুধু সংখ্যা রাখা
+  // নাম্বার থেকে প্লাস (+) বা অন্য কোনো স্পেশাল ক্যারেক্টার বাদ দিয়ে শুধু সংখ্যা রাখা
   phone = phone.replace(/[^0-9]/g, '');
   
   if (phone.length === 11 && phone.startsWith('0')) {
@@ -324,7 +307,6 @@ app.post('/api/request-pairing', async (req, res) => {
       }
     }
 
-    // একটু অপেক্ষা করা যাতে সকেট কানেকশন ইনিশিয়াল হওয়ার সুযোগ পায়
     await new Promise(resolve => setTimeout(resolve, 2000));
 
     let code = null;
@@ -348,7 +330,6 @@ app.post('/api/request-pairing', async (req, res) => {
   }
 });
 
-// সমস্ত কানেক্টেড অ্যাকাউন্ট ডিলিট বা রিসেট করার এপিআই
 app.post('/api/admin/clear-all-sessions', async (req, res) => {
   try {
     for (let phone in activeClients) {
@@ -386,8 +367,6 @@ app.get('/api/admin/numbers', (req, res) => {
 });
 
 app.get('/api/admin/chats/:phone', async (req, res) => {
-  // Baileys স্টোর ছাড়া চ্যাট লিস্ট সরাসরি পেতে স্টোরেজ হ্যান্ডলিং প্রয়োজন হতে পারে
-  // সিম্প্লিফিকেশনের জন্য এমপ্টি বা প্রিভিয়াস লিস্ট রিটার্ন করা হলো
   res.json({ chats: [] });
 });
 
@@ -489,4 +468,3 @@ server.listen(PORT, () => {
   console.log(`[Baileys Server Running] http://localhost:${PORT}`);
   autoLoadExistingSessions();
 });
-                                                            
