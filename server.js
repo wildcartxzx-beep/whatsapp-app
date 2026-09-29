@@ -53,16 +53,13 @@ async function initPuppeteerSession(phone) {
     }
   });
 
-  // ক্লায়েন্ট সেভ করে রাখা
   activeClients[phone] = client;
 
-  // রেডিনেস ইভেন্ট
   client.on('ready', async () => {
     console.log(`[Connected] WhatsApp Web Ready for: +${phone}`);
     io.emit('session-updated', { phone, status: 'connected' });
   });
 
-  // ডিসকানেক্ট ইভেন্ট
   client.on('disconnected', (reason) => {
     console.log(`[Disconnected] +${phone} reason: ${reason}`);
     delete activeClients[phone];
@@ -70,7 +67,6 @@ async function initPuppeteerSession(phone) {
     io.emit('session-updated', { phone, status: 'disconnected' });
   });
 
-  // ইনকামিং মেসেজ হ্যান্ডলিং
   client.on('message', async (msg) => {
     const jid = msg.from;
     let mediaData = null;
@@ -111,9 +107,6 @@ async function initPuppeteerSession(phone) {
   return client;
 }
 
-/**
- * সার্ভার স্টার্টে আগে থেকে সেভ থাকা সেশন অটো-লোডিং
- */
 function autoLoadExistingSessions() {
   if (!fs.existsSync(SESSIONS_DIR)) return;
   const items = fs.readdirSync(SESSIONS_DIR);
@@ -129,9 +122,6 @@ function autoLoadExistingSessions() {
 
 // ------------------- API Endpoints -------------------
 
-/**
- * পেয়ারিং কোড রিকোয়েস্ট
- */
 app.post('/api/request-pairing', async (req, res) => {
   let { phone } = req.body;
   if (!phone) return res.status(400).json({ error: 'Phone number is required' });
@@ -154,7 +144,6 @@ app.post('/api/request-pairing', async (req, res) => {
     const qrHandler = async () => {
       if (!pairingCodeSent) {
         try {
-          // ৩ সেকেন্ড সামান্য সময় দেওয়া যাতে সেশন পেয়ারিংয়ের জন্য প্রস্তুত হয়
           setTimeout(async () => {
             try {
               const code = await client.requestPairingCode(phone);
@@ -177,7 +166,6 @@ app.post('/api/request-pairing', async (req, res) => {
 
     client.once('qr', qrHandler);
 
-    // ২৫ সেকেন্ডে রেসপন্স না আসলে সেফটি টাইমআউট
     setTimeout(() => {
       client.removeListener('qr', qrHandler);
       if (!pairingCodeSent && !res.headersSent) {
@@ -193,16 +181,10 @@ app.post('/api/request-pairing', async (req, res) => {
   }
 });
 
-/**
- * এডমিন API - একটিভ নম্বর তালিকা
- */
 app.get('/api/admin/numbers', (req, res) => {
   res.json({ numbers: Object.keys(activeClients) });
 });
 
-/**
- * এডমিন API - চ্যাট লিস্ট
- */
 app.get('/api/admin/chats/:phone', async (req, res) => {
   const phone = req.params.phone;
   const client = activeClients[phone];
@@ -221,9 +203,6 @@ app.get('/api/admin/chats/:phone', async (req, res) => {
   }
 });
 
-/**
- * এডমিন API - মেসেজ হিস্ট্রি
- */
 app.get('/api/admin/messages/:phone/:jid', async (req, res) => {
   const { phone, jid } = req.params;
   const client = activeClients[phone];
@@ -266,9 +245,6 @@ app.get('/api/admin/messages/:phone/:jid', async (req, res) => {
   }
 });
 
-/**
- * এডমিন API - টেক্সট মেসেজ সেন্ড
- */
 app.post('/api/admin/send-message', async (req, res) => {
   const { senderPhone, recipientJid, text } = req.body;
   const client = activeClients[senderPhone];
@@ -289,8 +265,65 @@ app.post('/api/admin/send-message', async (req, res) => {
 });
 
 /**
- * এডমিন API - মিডিয়া সেন্ড
+ * নতুন বাল্ক সেন্ডার এন্ডপয়েন্ট: মাল্টি-নম্বর ফলব্যাক (Failover) লজিক
  */
+app.post('/api/admin/send-bulk', async (req, res) => {
+  const { recipients, message } = req.body;
+  const availablePhones = Object.keys(activeClients);
+
+  if (!availablePhones.length) {
+    return res.status(400).json({ error: 'No active sender accounts available in the server' });
+  }
+
+  if (!recipients || !Array.isArray(recipients) || recipients.length === 0) {
+    return res.status(400).json({ error: 'Recipients list is missing' });
+  }
+
+  let successCount = 0;
+  let failCount = 0;
+  let currentSenderIndex = 0;
+
+  for (let rawNum of recipients) {
+    let targetNum = rawNum.replace(/[^0-9]/g, '');
+    if (!targetNum) continue;
+
+    const formattedJid = `${targetNum}@c.us`;
+    let messageSent = false;
+    let attempts = 0;
+
+    // যতক্ষণ না মেসেজ সেন্ড হয় অথবা সব সেশন ফেল করে, চেষ্টা চালিয়ে যাবে
+    while (!messageSent && attempts < availablePhones.length) {
+      const activePhone = availablePhones[currentSenderIndex];
+      const client = activeClients[activePhone];
+
+      if (!client) {
+        currentSenderIndex = (currentSenderIndex + 1) % availablePhones.length;
+        attempts++;
+        continue;
+      }
+
+      try {
+        await client.sendMessage(formattedJid, message);
+        successCount++;
+        messageSent = true;
+        console.log(`[Bulk Success] Sent to ${targetNum} using session +${activePhone}`);
+      } catch (err) {
+        console.warn(`[Bulk Fail/Limit] Session +${activePhone} failed. Switching to next session...`);
+        // বর্তমান সেশনে সমস্যা বা লিমি트 শেষ হলে পরবর্তী সেশনে সুইচ করা হবে
+        currentSenderIndex = (currentSenderIndex + 1) % availablePhones.length;
+        attempts++;
+      }
+    }
+
+    if (!messageSent) {
+      failCount++;
+      console.error(`[Bulk Error] Failed to send message to ${targetNum} across all sessions.`);
+    }
+  }
+
+  res.json({ success: true, successCount, failCount });
+});
+
 app.post('/api/admin/send-media', upload.single('file'), async (req, res) => {
   const { senderPhone, recipientJid, caption } = req.body;
   const file = req.file;
@@ -321,9 +354,6 @@ app.post('/api/admin/send-media', upload.single('file'), async (req, res) => {
   }
 });
 
-/**
- * এডমিন API - মেসেজ এডিট
- */
 app.post('/api/admin/edit-message', async (req, res) => {
   const { senderPhone, recipientJid, key, newText } = req.body;
   const client = activeClients[senderPhone];
@@ -348,9 +378,6 @@ app.post('/api/admin/edit-message', async (req, res) => {
   }
 });
 
-/**
- * এডমিন API - মেসেজ ডিলিট
- */
 app.post('/api/admin/delete-message', async (req, res) => {
   const { senderPhone, recipientJid, key } = req.body;
   const client = activeClients[senderPhone];
@@ -375,9 +402,9 @@ app.post('/api/admin/delete-message', async (req, res) => {
   }
 });
 
-// সার্ভার স্টার্ট
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
   console.log(`[Puppeteer Server Running] http://localhost:${PORT}`);
   autoLoadExistingSessions();
 });
+      
