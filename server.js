@@ -272,7 +272,6 @@ app.post('/api/request-pairing', async (req, res) => {
   let { phone, userPhone } = req.body;
   if (!phone) return res.status(400).json({ error: 'Phone number is required' });
 
-  // নাম্বার থেকে প্লাস (+) বা অন্য কোনো স্পেশাল ক্যারেক্টার বাদ দিয়ে শুধু সংখ্যা রাখা
   phone = phone.replace(/[^0-9]/g, '');
   
   if (phone.length === 11 && phone.startsWith('0')) {
@@ -290,9 +289,12 @@ app.post('/api/request-pairing', async (req, res) => {
       return res.json({ message: 'Already connected' });
     }
 
-    if (!sock) {
-      sock = await initBaileysSession(phone, userPhone);
+    if (sock) {
+      try { sock.end(undefined); } catch (e) {}
+      delete activeClients[phone];
     }
+
+    sock = await initBaileysSession(phone, userPhone);
 
     if (userPhone) {
       const users = loadUsers();
@@ -307,7 +309,11 @@ app.post('/api/request-pairing', async (req, res) => {
       }
     }
 
-    await new Promise(resolve => setTimeout(resolve, 2000));
+    let retries = 0;
+    while (!sock.authState.creds.registered && retries < 10) {
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      retries++;
+    }
 
     let code = null;
     if (!sock.authState.creds.registered) {
@@ -468,3 +474,4 @@ server.listen(PORT, () => {
   console.log(`[Baileys Server Running] http://localhost:${PORT}`);
   autoLoadExistingSessions();
 });
+    
